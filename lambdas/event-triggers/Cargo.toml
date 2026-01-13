@@ -1,0 +1,32 @@
+[package]
+name = "event-triggers"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "briefing_dispatcher"
+path = "src/bin/briefing_dispatcher.rs"
+
+[[bin]]
+name = "reminder_evaluator"
+path = "src/bin/reminder_evaluator.rs"
+
+[[bin]]
+name = "calendar_sync"
+path = "src/bin/calendar_sync.rs"
+
+[dependencies]
+shared = { path = "../shared" }
+lambda_runtime.workspace = true
+aws-config.workspace = true
+aws-sdk-bedrockagentruntime.workspace = true
+aws-sdk-sns.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
