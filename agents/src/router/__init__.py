@@ -1,5 +1,10 @@
-"""Router Agent - Entry point for request classification."""
+"""Router Agent - Entry point for Second Brain agent system."""
 
-from .agent import create_router_agent
+from .agent import RouterAgent, create_router_agent
+from .prompts import ROUTER_SYSTEM_PROMPT
 
-__all__ = ["create_router_agent"]
+__all__ = [
+    "RouterAgent",
+    "create_router_agent",
+    "ROUTER_SYSTEM_PROMPT",
+]
