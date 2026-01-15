@@ -7,6 +7,7 @@ from .api import ApiStack
 from .agents import AgentsStack
 from .integrations import IntegrationsStack
 from .scheduling import SchedulingStack
+from .migrations import MigrationsStack
 
 __all__ = [
     "NetworkStack",
@@ -16,4 +17,5 @@ __all__ = [
     "AgentsStack",
     "IntegrationsStack",
     "SchedulingStack",
+    "MigrationsStack",
 ]

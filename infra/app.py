@@ -13,6 +13,7 @@ from stacks.api import ApiStack
 from stacks.integrations import IntegrationsStack
 from stacks.scheduling import SchedulingStack
 from stacks.monitoring import MonitoringStack
+from stacks.migrations import MigrationsStack
 
 app = App()
 
@@ -34,6 +35,19 @@ database = DatabaseStack(
     env=env,
 )
 database.add_dependency(network)
+
+# Migrations Stack - Database migration runner for CI/CD
+migrations = MigrationsStack(
+    app,
+    "SecondBrainMigrations",
+    vpc=network.vpc,
+    security_group=network.lambda_security_group,
+    database_secret=database.db_secret,
+    database_host=database.db_instance.db_instance_endpoint_address,
+    env=env,
+)
+migrations.add_dependency(network)
+migrations.add_dependency(database)
 
 # Auth Stack - Cognito
 auth = AuthStack(app, "SecondBrainAuth", env=env)
