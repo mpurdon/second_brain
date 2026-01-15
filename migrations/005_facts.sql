@@ -30,13 +30,6 @@ CREATE TABLE facts (
     -- Temporal validity (when the fact is/was true)
     valid_from DATE,
     valid_to DATE,
-    valid_range TSTZRANGE GENERATED ALWAYS AS (
-        TSTZRANGE(
-            COALESCE(valid_from, '-infinity')::TIMESTAMPTZ,
-            COALESCE(valid_to, 'infinity')::TIMESTAMPTZ,
-            '[)'
-        )
-    ) STORED,
 
     -- Recurrence
     is_recurring BOOLEAN NOT NULL DEFAULT false,
@@ -55,7 +48,8 @@ CREATE INDEX idx_facts_owner ON facts(owner_type, owner_id);
 CREATE INDEX idx_facts_about_entity ON facts(about_entity_id) WHERE about_entity_id IS NOT NULL;
 CREATE INDEX idx_facts_importance ON facts(importance);
 CREATE INDEX idx_facts_visibility ON facts(visibility_tier);
-CREATE INDEX idx_facts_valid_range ON facts USING GIST(valid_range);
+CREATE INDEX idx_facts_valid_from ON facts(valid_from);
+CREATE INDEX idx_facts_valid_to ON facts(valid_to);
 CREATE INDEX idx_facts_current ON facts(owner_type, owner_id) WHERE valid_to IS NULL;
 CREATE INDEX idx_facts_recurring ON facts(is_recurring) WHERE is_recurring = true;
 CREATE INDEX idx_facts_content_trgm ON facts USING GIN(content_normalized gin_trgm_ops);

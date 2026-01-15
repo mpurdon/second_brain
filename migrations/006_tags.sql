@@ -22,12 +22,14 @@ CREATE TABLE tags (
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT tags_path_format CHECK (path ~ '^[a-z0-9_/]+$'),
-    CONSTRAINT tags_unique_path UNIQUE (
-        COALESCE(owner_type, ''),
-        COALESCE(owner_id, '00000000-0000-0000-0000-000000000000'::UUID),
-        path
-    )
+    CONSTRAINT tags_path_format CHECK (path ~ '^[a-z0-9_/]+$')
+);
+
+-- Unique path per owner (system-wide tags have NULL owner)
+CREATE UNIQUE INDEX idx_tags_unique_path ON tags(
+    COALESCE(owner_type, ''),
+    COALESCE(owner_id, '00000000-0000-0000-0000-000000000000'::UUID),
+    path
 );
 
 CREATE INDEX idx_tags_owner ON tags(owner_type, owner_id);

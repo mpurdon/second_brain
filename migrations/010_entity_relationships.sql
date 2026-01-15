@@ -14,13 +14,6 @@ CREATE TABLE entity_relationships (
     -- Temporal validity
     valid_from DATE,
     valid_to DATE,
-    valid_range TSTZRANGE GENERATED ALWAYS AS (
-        TSTZRANGE(
-            COALESCE(valid_from, '-infinity')::TIMESTAMPTZ,
-            COALESCE(valid_to, 'infinity')::TIMESTAMPTZ,
-            '[)'
-        )
-    ) STORED,
 
     -- Additional metadata
     metadata JSONB NOT NULL DEFAULT '{}',
@@ -36,7 +29,8 @@ CREATE TABLE entity_relationships (
 CREATE INDEX idx_entity_relationships_source ON entity_relationships(source_entity_id);
 CREATE INDEX idx_entity_relationships_target ON entity_relationships(target_entity_id);
 CREATE INDEX idx_entity_relationships_type ON entity_relationships(relationship_type);
-CREATE INDEX idx_entity_relationships_valid ON entity_relationships USING GIST(valid_range);
+CREATE INDEX idx_entity_relationships_valid_from ON entity_relationships(valid_from);
+CREATE INDEX idx_entity_relationships_valid_to ON entity_relationships(valid_to);
 CREATE UNIQUE INDEX idx_entity_relationships_unique_active ON entity_relationships(
     source_entity_id, target_entity_id, relationship_type
 ) WHERE valid_to IS NULL;

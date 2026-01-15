@@ -2,28 +2,39 @@
 -- Supports proactive intelligence features
 
 -- ===========================================
--- REMINDERS TABLE
+-- REMINDERS TABLE (DROP AND RECREATE)
 -- ===========================================
 
+-- Drop old reminders table from migration 007 (it had limited functionality)
+DROP TABLE IF EXISTS reminders CASCADE;
+DROP TYPE IF EXISTS reminder_type CASCADE;
+DROP TYPE IF EXISTS reminder_status CASCADE;
+
 -- Reminder trigger types
-CREATE TYPE reminder_trigger_type AS ENUM (
-    'time',           -- At a specific time
-    'location',       -- When entering/leaving a location
-    'event',          -- Before/after a calendar event
-    'recurring'       -- Recurring schedule (daily, weekly, etc.)
-);
+DO $$ BEGIN
+    CREATE TYPE reminder_trigger_type AS ENUM (
+        'time',           -- At a specific time
+        'location',       -- When entering/leaving a location
+        'event',          -- Before/after a calendar event
+        'recurring'       -- Recurring schedule (daily, weekly, etc.)
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Reminder status
-CREATE TYPE reminder_status AS ENUM (
-    'active',         -- Reminder is active and will trigger
-    'triggered',      -- Reminder has been triggered, awaiting action
-    'snoozed',        -- User snoozed the reminder
-    'completed',      -- User marked as done
-    'cancelled'       -- User cancelled the reminder
-);
+DO $$ BEGIN
+    CREATE TYPE reminder_status AS ENUM (
+        'active',         -- Reminder is active and will trigger
+        'triggered',      -- Reminder has been triggered, awaiting action
+        'snoozed',        -- User snoozed the reminder
+        'completed',      -- User marked as done
+        'cancelled'       -- User cancelled the reminder
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Main reminders table
-CREATE TABLE reminders (
+CREATE TABLE IF NOT EXISTS reminders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
@@ -62,45 +73,54 @@ CREATE TABLE reminders (
 );
 
 -- Indexes for reminder queries
-CREATE INDEX idx_reminders_user ON reminders(user_id);
-CREATE INDEX idx_reminders_status ON reminders(status) WHERE status IN ('active', 'snoozed');
-CREATE INDEX idx_reminders_next_trigger ON reminders(next_trigger_at) WHERE status = 'active';
-CREATE INDEX idx_reminders_trigger_type ON reminders(trigger_type);
+CREATE INDEX IF NOT EXISTS idx_reminders_user_v2 ON reminders(user_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_status_v2 ON reminders(status) WHERE status IN ('active', 'snoozed');
+CREATE INDEX IF NOT EXISTS idx_reminders_next_trigger_v2 ON reminders(next_trigger_at) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_reminders_trigger_type_v2 ON reminders(trigger_type);
 
 -- ===========================================
 -- NOTIFICATIONS TABLE
 -- ===========================================
 
 -- Notification types
-CREATE TYPE notification_type AS ENUM (
-    'reminder',       -- From a reminder trigger
-    'briefing',       -- Morning/evening briefing
-    'calendar',       -- Calendar event reminder
-    'birthday',       -- Birthday/anniversary notification
-    'proactive',      -- Proactive insight from agents
-    'system'          -- System notification
-);
+DO $$ BEGIN
+    CREATE TYPE notification_type AS ENUM (
+        'reminder',       -- From a reminder trigger
+        'briefing',       -- Morning/evening briefing
+        'calendar',       -- Calendar event reminder
+        'birthday',       -- Birthday/anniversary notification
+        'proactive',      -- Proactive insight from agents
+        'system'          -- System notification
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Notification delivery channels
-CREATE TYPE notification_channel AS ENUM (
-    'push',           -- Mobile push notification
-    'email',          -- Email
-    'discord',        -- Discord DM
-    'alexa',          -- Alexa announcement
-    'sms'             -- SMS (future)
-);
+DO $$ BEGIN
+    CREATE TYPE notification_channel AS ENUM (
+        'push',           -- Mobile push notification
+        'email',          -- Email
+        'discord',        -- Discord DM
+        'alexa',          -- Alexa announcement
+        'sms'             -- SMS (future)
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Notification status
-CREATE TYPE notification_status AS ENUM (
-    'pending',        -- Queued for delivery
-    'sent',           -- Delivered to channel
-    'failed',         -- Delivery failed
-    'read',           -- User read/acknowledged
-    'dismissed'       -- User dismissed
-);
+DO $$ BEGIN
+    CREATE TYPE notification_status AS ENUM (
+        'pending',        -- Queued for delivery
+        'sent',           -- Delivered to channel
+        'failed',         -- Delivery failed
+        'read',           -- User read/acknowledged
+        'dismissed'       -- User dismissed
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Notifications table
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
@@ -138,17 +158,17 @@ CREATE TABLE notifications (
 );
 
 -- Indexes for notification queries
-CREATE INDEX idx_notifications_user ON notifications(user_id);
-CREATE INDEX idx_notifications_status ON notifications(status) WHERE status = 'pending';
-CREATE INDEX idx_notifications_scheduled ON notifications(scheduled_at) WHERE status = 'pending';
-CREATE INDEX idx_notifications_channel ON notifications(channel);
-CREATE INDEX idx_notifications_type ON notifications(notification_type);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_notifications_scheduled ON notifications(scheduled_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_notifications_channel ON notifications(channel);
+CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(notification_type);
 
 -- ===========================================
 -- USER NOTIFICATION PREFERENCES
 -- ===========================================
 
-CREATE TABLE user_notification_preferences (
+CREATE TABLE IF NOT EXISTS user_notification_preferences (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 
     -- Channel preferences
@@ -182,7 +202,7 @@ CREATE TABLE user_notification_preferences (
 -- BRIEFING HISTORY
 -- ===========================================
 
-CREATE TABLE briefing_history (
+CREATE TABLE IF NOT EXISTS briefing_history (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
@@ -210,8 +230,8 @@ CREATE TABLE briefing_history (
     generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_briefing_history_user ON briefing_history(user_id);
-CREATE INDEX idx_briefing_history_date ON briefing_history(generated_at);
+CREATE INDEX IF NOT EXISTS idx_briefing_history_user ON briefing_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_briefing_history_date ON briefing_history(generated_at);
 
 -- ===========================================
 -- HELPER FUNCTIONS

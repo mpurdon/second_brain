@@ -58,13 +58,14 @@ CREATE TABLE calendar_event_attendees (
     display_name VARCHAR(255),
 
     -- Status
-    response_status VARCHAR(20) DEFAULT 'unknown',
+    response_status VARCHAR(20) DEFAULT 'unknown'
+);
 
-    CONSTRAINT calendar_event_attendees_unique UNIQUE (
-        event_id,
-        COALESCE(entity_id, '00000000-0000-0000-0000-000000000000'::UUID),
-        COALESCE(email, '')
-    )
+-- Unique attendee per event (by entity or by email)
+CREATE UNIQUE INDEX idx_calendar_event_attendees_unique ON calendar_event_attendees(
+    event_id,
+    COALESCE(entity_id, '00000000-0000-0000-0000-000000000000'::UUID),
+    COALESCE(email, '')
 );
 
 CREATE INDEX idx_calendar_event_attendees_event ON calendar_event_attendees(event_id);

@@ -6,19 +6,19 @@
 -- ===========================================
 
 -- Composite index for permission-aware fact queries (most common pattern)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facts_owner_visibility
+CREATE INDEX IF NOT EXISTS idx_facts_owner_visibility
 ON facts(owner_type, owner_id, visibility_tier);
 
 -- Index for temporal queries (valid_from/valid_to filtering)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facts_temporal
+CREATE INDEX IF NOT EXISTS idx_facts_temporal
 ON facts(valid_from, valid_to) WHERE valid_from IS NOT NULL OR valid_to IS NOT NULL;
 
 -- Index for importance-based sorting
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facts_importance_recorded
+CREATE INDEX IF NOT EXISTS idx_facts_importance_recorded
 ON facts(importance DESC, recorded_at DESC);
 
 -- Full-text search on fact content
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facts_content_trgm
+CREATE INDEX IF NOT EXISTS idx_facts_content_trgm
 ON facts USING gin(content gin_trgm_ops);
 
 -- ===========================================
@@ -26,15 +26,15 @@ ON facts USING gin(content gin_trgm_ops);
 -- ===========================================
 
 -- Composite index for entity searches
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entities_owner_type
+CREATE INDEX IF NOT EXISTS idx_entities_owner_type
 ON entities(owner_type, owner_id, entity_type);
 
 -- Trigram index for fuzzy name matching
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entities_name_trgm
+CREATE INDEX IF NOT EXISTS idx_entities_name_trgm
 ON entities USING gin(name gin_trgm_ops);
 
 -- Normalized name for exact lookups
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entities_normalized
+CREATE INDEX IF NOT EXISTS idx_entities_normalized
 ON entities(normalized_name);
 
 -- ===========================================
@@ -42,11 +42,11 @@ ON entities(normalized_name);
 -- ===========================================
 
 -- Path prefix search (for autocomplete and hierarchy)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tags_path_prefix
+CREATE INDEX IF NOT EXISTS idx_tags_path_prefix
 ON tags USING btree(path text_pattern_ops);
 
 -- Owner-based tag filtering
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tags_owner
+CREATE INDEX IF NOT EXISTS idx_tags_owner
 ON tags(owner_type, owner_id) WHERE owner_type IS NOT NULL;
 
 -- ===========================================
@@ -54,7 +54,7 @@ ON tags(owner_type, owner_id) WHERE owner_type IS NOT NULL;
 -- ===========================================
 
 -- Reverse lookup: tags -> facts
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fact_tags_tag
+CREATE INDEX IF NOT EXISTS idx_fact_tags_tag
 ON fact_tags(tag_id);
 
 -- ===========================================
@@ -62,11 +62,11 @@ ON fact_tags(tag_id);
 -- ===========================================
 
 -- Viewer-based access lookup
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_uac_viewer_access
+CREATE INDEX IF NOT EXISTS idx_uac_viewer_access
 ON user_access_cache(viewer_user_id, access_tier);
 
 -- Target-based lookup for permission checks
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_uac_target
+CREATE INDEX IF NOT EXISTS idx_uac_target
 ON user_access_cache(target_user_id);
 
 -- ===========================================
@@ -74,11 +74,11 @@ ON user_access_cache(target_user_id);
 -- ===========================================
 
 -- Spatial index for proximity queries (if not exists)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entity_locations_geo
+CREATE INDEX IF NOT EXISTS idx_entity_locations_geo
 ON entity_locations USING gist(location);
 
 -- Entity location lookup
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entity_locations_entity
+CREATE INDEX IF NOT EXISTS idx_entity_locations_entity
 ON entity_locations(entity_id);
 
 -- ===========================================
@@ -88,12 +88,10 @@ ON entity_locations(entity_id);
 -- HNSW index for faster vector similarity (if using pgvector)
 -- Note: This is more memory-intensive but faster for queries
 -- DROP INDEX IF EXISTS idx_embeddings_vector;
--- CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_vector_hnsw
+-- CREATE INDEX IF NOT EXISTS idx_embeddings_vector_hnsw
 -- ON embeddings USING hnsw(embedding vector_cosine_ops);
 
--- Source reference lookup
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_embeddings_source
-ON embeddings(source_type, source_id);
+-- Source reference lookup (fact_embeddings table uses fact_id as PK, no additional index needed)
 
 -- ===========================================
 -- QUERY PERFORMANCE FUNCTIONS
@@ -136,7 +134,7 @@ ANALYZE tags;
 ANALYZE fact_tags;
 ANALYZE user_access_cache;
 ANALYZE entity_locations;
-ANALYZE embeddings;
+ANALYZE fact_embeddings;
 
 COMMENT ON INDEX idx_facts_owner_visibility IS 'Optimizes permission-aware fact queries';
 COMMENT ON INDEX idx_facts_content_trgm IS 'Enables fast text search on fact content';

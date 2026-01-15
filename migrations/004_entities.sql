@@ -60,13 +60,6 @@ CREATE TABLE entity_attributes (
     -- Temporal validity
     valid_from DATE,
     valid_to DATE,
-    valid_range TSTZRANGE GENERATED ALWAYS AS (
-        TSTZRANGE(
-            COALESCE(valid_from, '-infinity')::TIMESTAMPTZ,
-            COALESCE(valid_to, 'infinity')::TIMESTAMPTZ,
-            '[)'
-        )
-    ) STORED,
 
     -- Visibility
     visibility_tier SMALLINT NOT NULL DEFAULT 2 CHECK (visibility_tier BETWEEN 1 AND 4),
@@ -79,7 +72,8 @@ CREATE TABLE entity_attributes (
 
 CREATE INDEX idx_entity_attributes_entity ON entity_attributes(entity_id);
 CREATE INDEX idx_entity_attributes_name ON entity_attributes(attribute_name);
-CREATE INDEX idx_entity_attributes_valid ON entity_attributes USING GIST(valid_range);
+CREATE INDEX idx_entity_attributes_valid_from ON entity_attributes(valid_from);
+CREATE INDEX idx_entity_attributes_valid_to ON entity_attributes(valid_to);
 CREATE INDEX idx_entity_attributes_current ON entity_attributes(entity_id, attribute_name)
     WHERE valid_to IS NULL;
 
@@ -106,13 +100,6 @@ CREATE TABLE entity_locations (
     -- Temporal validity
     valid_from DATE,
     valid_to DATE,
-    valid_range TSTZRANGE GENERATED ALWAYS AS (
-        TSTZRANGE(
-            COALESCE(valid_from, '-infinity')::TIMESTAMPTZ,
-            COALESCE(valid_to, 'infinity')::TIMESTAMPTZ,
-            '[)'
-        )
-    ) STORED,
 
     -- Visibility
     visibility_tier SMALLINT NOT NULL DEFAULT 3 CHECK (visibility_tier BETWEEN 1 AND 4),
@@ -124,6 +111,7 @@ CREATE TABLE entity_locations (
 CREATE INDEX idx_entity_locations_entity ON entity_locations(entity_id);
 CREATE INDEX idx_entity_locations_label ON entity_locations(label);
 CREATE INDEX idx_entity_locations_geo ON entity_locations USING GIST(location);
-CREATE INDEX idx_entity_locations_valid ON entity_locations USING GIST(valid_range);
+CREATE INDEX idx_entity_locations_valid_from ON entity_locations(valid_from);
+CREATE INDEX idx_entity_locations_valid_to ON entity_locations(valid_to);
 CREATE INDEX idx_entity_locations_current ON entity_locations(entity_id, label)
     WHERE valid_to IS NULL;

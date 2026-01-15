@@ -33,13 +33,6 @@ CREATE TABLE relationships (
     -- Temporal validity
     valid_from DATE,
     valid_to DATE,
-    valid_range TSTZRANGE GENERATED ALWAYS AS (
-        TSTZRANGE(
-            COALESCE(valid_from, '-infinity')::TIMESTAMPTZ,
-            COALESCE(valid_to, 'infinity')::TIMESTAMPTZ,
-            '[)'
-        )
-    ) STORED,
 
     metadata JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -59,7 +52,8 @@ CREATE UNIQUE INDEX idx_relationships_unique_active ON relationships(
 CREATE INDEX idx_relationships_source ON relationships(source_user_id);
 CREATE INDEX idx_relationships_target ON relationships(target_user_id);
 CREATE INDEX idx_relationships_type ON relationships(relationship_type);
-CREATE INDEX idx_relationships_valid_range ON relationships USING GIST(valid_range);
+CREATE INDEX idx_relationships_valid_from ON relationships(valid_from);
+CREATE INDEX idx_relationships_valid_to ON relationships(valid_to);
 
 -- User access cache (materialized permission lookups)
 CREATE TABLE user_access_cache (
