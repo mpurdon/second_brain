@@ -145,33 +145,33 @@ class ApiStack(Stack):
         query_lambda = create_rust_lambda(
             "QueryLambda",
             "query",
-            "Handles /v1/query requests",
+            "Handles /query requests",
         )
 
         ingest_lambda = create_rust_lambda(
             "IngestLambda",
             "ingest",
-            "Handles /v1/ingest requests",
+            "Handles /ingest requests",
         )
 
         briefing_lambda = create_rust_lambda(
             "BriefingLambda",
             "briefing",
-            "Handles /v1/briefing requests",
+            "Handles /briefing requests",
             timeout_seconds=60,
         )
 
         calendar_lambda = create_rust_lambda(
             "CalendarLambda",
             "calendar",
-            "Handles /v1/calendar requests",
+            "Handles /calendar requests",
         )
 
         # Families Lambda (database access)
         families_lambda = create_rust_lambda(
             "FamiliesLambda",
             "families",
-            "Handles /v1/families requests",
+            "Handles /families requests",
             env=db_env,
             needs_agent_invoke=False,
             needs_secrets=True,
@@ -181,7 +181,7 @@ class ApiStack(Stack):
         relationships_lambda = create_rust_lambda(
             "RelationshipsLambda",
             "relationships",
-            "Handles /v1/relationships requests",
+            "Handles /relationships requests",
             env=db_env,
             needs_agent_invoke=False,
             needs_secrets=True,
@@ -191,7 +191,7 @@ class ApiStack(Stack):
         entities_lambda = create_rust_lambda(
             "EntitiesLambda",
             "entities",
-            "Handles /v1/entities requests",
+            "Handles /entities requests",
             env=db_env,
             needs_agent_invoke=False,
             needs_secrets=True,
@@ -201,7 +201,7 @@ class ApiStack(Stack):
         locations_lambda = create_rust_lambda(
             "LocationsLambda",
             "locations",
-            "Handles /v1/locations and temporal queries",
+            "Handles /locations and temporal queries",
             env=db_env,
             needs_agent_invoke=False,
             needs_secrets=True,
@@ -211,7 +211,7 @@ class ApiStack(Stack):
         tags_lambda = create_rust_lambda(
             "TagsLambda",
             "tags",
-            "Handles /v1/tags and fact tagging",
+            "Handles /tags and fact tagging",
             env=db_env,
             needs_agent_invoke=False,
             needs_secrets=True,
@@ -221,7 +221,7 @@ class ApiStack(Stack):
         feedback_lambda = create_rust_lambda(
             "FeedbackLambda",
             "feedback",
-            "Handles /v1/feedback user learning loop",
+            "Handles /feedback user learning loop",
             env=db_env,
             needs_agent_invoke=False,
             needs_secrets=True,
@@ -231,7 +231,7 @@ class ApiStack(Stack):
         reminders_lambda = create_rust_lambda(
             "RemindersLambda",
             "reminders",
-            "Handles /v1/reminders CRUD operations",
+            "Handles /reminders CRUD operations",
             env=db_env,
             needs_agent_invoke=False,
             needs_secrets=True,
@@ -244,7 +244,7 @@ class ApiStack(Stack):
             rest_api_name="second-brain-api",
             description="Second Brain REST API",
             deploy_options=apigw.StageOptions(
-                stage_name="v1",
+                stage_name="api",
                 logging_level=apigw.MethodLoggingLevel.INFO,
                 data_trace_enabled=True,
                 metrics_enabled=True,
@@ -273,10 +273,10 @@ class ApiStack(Stack):
         )
 
         # API Resources
-        v1 = self.api.root.add_resource("v1")
+        root = self.api.root
 
-        # /v1/query endpoint
-        query_resource = v1.add_resource("query")
+        # /query endpoint
+        query_resource = root.add_resource("query")
         query_resource.add_method(
             "POST",
             apigw.LambdaIntegration(query_lambda),
@@ -284,8 +284,8 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/ingest endpoint
-        ingest_resource = v1.add_resource("ingest")
+        # /ingest endpoint
+        ingest_resource = root.add_resource("ingest")
         ingest_resource.add_method(
             "POST",
             apigw.LambdaIntegration(ingest_lambda),
@@ -293,8 +293,8 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/briefing endpoint
-        briefing_resource = v1.add_resource("briefing")
+        # /briefing endpoint
+        briefing_resource = root.add_resource("briefing")
         briefing_resource.add_method(
             "GET",
             apigw.LambdaIntegration(briefing_lambda),
@@ -302,8 +302,8 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/calendar endpoint
-        calendar_resource = v1.add_resource("calendar")
+        # /calendar endpoint
+        calendar_resource = root.add_resource("calendar")
         calendar_resource.add_method(
             "GET",
             apigw.LambdaIntegration(calendar_lambda),
@@ -311,11 +311,11 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/families endpoints
-        families_resource = v1.add_resource("families")
+        # /families endpoints
+        families_resource = root.add_resource("families")
         families_integration = apigw.LambdaIntegration(families_lambda)
 
-        # POST /v1/families - Create family
+        # POST /families - Create family
         families_resource.add_method(
             "POST",
             families_integration,
@@ -323,7 +323,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # GET /v1/families - List user's families
+        # GET /families - List user's families
         families_resource.add_method(
             "GET",
             families_integration,
@@ -331,10 +331,10 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/families/{familyId}
+        # /families/{familyId}
         family_resource = families_resource.add_resource("{familyId}")
 
-        # GET /v1/families/{familyId} - Get family details
+        # GET /families/{familyId} - Get family details
         family_resource.add_method(
             "GET",
             families_integration,
@@ -342,10 +342,10 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/families/{familyId}/members
+        # /families/{familyId}/members
         family_members_resource = family_resource.add_resource("members")
 
-        # POST /v1/families/{familyId}/members - Add member
+        # POST /families/{familyId}/members - Add member
         family_members_resource.add_method(
             "POST",
             families_integration,
@@ -353,10 +353,10 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/families/{familyId}/members/{userId}
+        # /families/{familyId}/members/{userId}
         family_member_resource = family_members_resource.add_resource("{userId}")
 
-        # DELETE /v1/families/{familyId}/members/{userId} - Remove member
+        # DELETE /families/{familyId}/members/{userId} - Remove member
         family_member_resource.add_method(
             "DELETE",
             families_integration,
@@ -364,11 +364,11 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/relationships endpoints
-        relationships_resource = v1.add_resource("relationships")
+        # /relationships endpoints
+        relationships_resource = root.add_resource("relationships")
         relationships_integration = apigw.LambdaIntegration(relationships_lambda)
 
-        # POST /v1/relationships - Create relationship
+        # POST /relationships - Create relationship
         relationships_resource.add_method(
             "POST",
             relationships_integration,
@@ -376,7 +376,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # GET /v1/relationships - List relationships
+        # GET /relationships - List relationships
         relationships_resource.add_method(
             "GET",
             relationships_integration,
@@ -384,10 +384,10 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/relationships/{relationshipId}
+        # /relationships/{relationshipId}
         relationship_resource = relationships_resource.add_resource("{relationshipId}")
 
-        # PUT /v1/relationships/{relationshipId} - Update access tier
+        # PUT /relationships/{relationshipId} - Update access tier
         relationship_resource.add_method(
             "PUT",
             relationships_integration,
@@ -395,7 +395,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # DELETE /v1/relationships/{relationshipId} - Remove relationship
+        # DELETE /relationships/{relationshipId} - Remove relationship
         relationship_resource.add_method(
             "DELETE",
             relationships_integration,
@@ -403,11 +403,11 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/entities endpoints
-        entities_resource = v1.add_resource("entities")
+        # /entities endpoints
+        entities_resource = root.add_resource("entities")
         entities_integration = apigw.LambdaIntegration(entities_lambda)
 
-        # POST /v1/entities - Create entity
+        # POST /entities - Create entity
         entities_resource.add_method(
             "POST",
             entities_integration,
@@ -415,7 +415,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # GET /v1/entities - Search/list entities
+        # GET /entities - Search/list entities
         entities_resource.add_method(
             "GET",
             entities_integration,
@@ -423,10 +423,10 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/entities/{entityId}
+        # /entities/{entityId}
         entity_resource = entities_resource.add_resource("{entityId}")
 
-        # GET /v1/entities/{entityId} - Get entity details
+        # GET /entities/{entityId} - Get entity details
         entity_resource.add_method(
             "GET",
             entities_integration,
@@ -434,7 +434,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # PUT /v1/entities/{entityId} - Update entity
+        # PUT /entities/{entityId} - Update entity
         entity_resource.add_method(
             "PUT",
             entities_integration,
@@ -442,7 +442,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # DELETE /v1/entities/{entityId} - Delete entity
+        # DELETE /entities/{entityId} - Delete entity
         entity_resource.add_method(
             "DELETE",
             entities_integration,
@@ -450,7 +450,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/entities/{entityId}/facts - Entity timeline
+        # /entities/{entityId}/facts - Entity timeline
         entity_facts_resource = entity_resource.add_resource("facts")
         entity_facts_resource.add_method(
             "GET",
@@ -459,10 +459,10 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/entities/{entityId}/relationships - Entity relationships
+        # /entities/{entityId}/relationships - Entity relationships
         entity_relationships_resource = entity_resource.add_resource("relationships")
 
-        # GET /v1/entities/{entityId}/relationships - List entity relationships
+        # GET /entities/{entityId}/relationships - List entity relationships
         entity_relationships_resource.add_method(
             "GET",
             entities_integration,
@@ -470,7 +470,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # POST /v1/entities/{entityId}/relationships - Create entity relationship
+        # POST /entities/{entityId}/relationships - Create entity relationship
         entity_relationships_resource.add_method(
             "POST",
             entities_integration,
@@ -482,7 +482,7 @@ class ApiStack(Stack):
         entity_locations_resource = entity_resource.add_resource("locations")
         locations_integration = apigw.LambdaIntegration(locations_lambda)
 
-        # GET /v1/entities/{entityId}/locations - Get entity locations
+        # GET /entities/{entityId}/locations - Get entity locations
         entity_locations_resource.add_method(
             "GET",
             locations_integration,
@@ -490,7 +490,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # POST /v1/entities/{entityId}/locations - Add location to entity
+        # POST /entities/{entityId}/locations - Add location to entity
         entity_locations_resource.add_method(
             "POST",
             locations_integration,
@@ -498,10 +498,10 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/locations endpoints
-        locations_resource = v1.add_resource("locations")
+        # /locations endpoints
+        locations_resource = root.add_resource("locations")
 
-        # GET /v1/locations/nearby - Proximity search
+        # GET /locations/nearby - Proximity search
         locations_nearby_resource = locations_resource.add_resource("nearby")
         locations_nearby_resource.add_method(
             "GET",
@@ -510,7 +510,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # GET /v1/locations/distance - Calculate distance
+        # GET /locations/distance - Calculate distance
         locations_distance_resource = locations_resource.add_resource("distance")
         locations_distance_resource.add_method(
             "GET",
@@ -519,8 +519,8 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/facts/timeline - Temporal query endpoint
-        facts_resource = v1.add_resource("facts")
+        # /facts/timeline - Temporal query endpoint
+        facts_resource = root.add_resource("facts")
         facts_timeline_resource = facts_resource.add_resource("timeline")
         facts_timeline_resource.add_method(
             "GET",
@@ -529,11 +529,11 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/tags endpoints
-        tags_resource = v1.add_resource("tags")
+        # /tags endpoints
+        tags_resource = root.add_resource("tags")
         tags_integration = apigw.LambdaIntegration(tags_lambda)
 
-        # POST /v1/tags - Create tag
+        # POST /tags - Create tag
         tags_resource.add_method(
             "POST",
             tags_integration,
@@ -541,7 +541,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # GET /v1/tags - List/search tags (autocomplete)
+        # GET /tags - List/search tags (autocomplete)
         tags_resource.add_method(
             "GET",
             tags_integration,
@@ -549,7 +549,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # GET /v1/tags/stats - Tag statistics
+        # GET /tags/stats - Tag statistics
         tags_stats_resource = tags_resource.add_resource("stats")
         tags_stats_resource.add_method(
             "GET",
@@ -558,7 +558,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # POST /v1/tags/suggestions - Get AI tag suggestions
+        # POST /tags/suggestions - Get AI tag suggestions
         tags_suggestions_resource = tags_resource.add_resource("suggestions")
         tags_suggestions_resource.add_method(
             "POST",
@@ -567,10 +567,10 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/tags/{tagId}
+        # /tags/{tagId}
         tag_resource = tags_resource.add_resource("{tagId}")
 
-        # PUT /v1/tags/{tagId} - Update tag
+        # PUT /tags/{tagId} - Update tag
         tag_resource.add_method(
             "PUT",
             tags_integration,
@@ -578,7 +578,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # DELETE /v1/tags/{tagId} - Delete tag
+        # DELETE /tags/{tagId} - Delete tag
         tag_resource.add_method(
             "DELETE",
             tags_integration,
@@ -586,7 +586,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # GET /v1/tags/{tagId}/facts - Facts with this tag
+        # GET /tags/{tagId}/facts - Facts with this tag
         tag_facts_resource = tag_resource.add_resource("facts")
         tag_facts_resource.add_method(
             "GET",
@@ -595,11 +595,11 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/facts/{factId}/tags - Fact tagging
+        # /facts/{factId}/tags - Fact tagging
         fact_resource = facts_resource.add_resource("{factId}")
         fact_tags_resource = fact_resource.add_resource("tags")
 
-        # POST /v1/facts/{factId}/tags - Apply tags to fact
+        # POST /facts/{factId}/tags - Apply tags to fact
         fact_tags_resource.add_method(
             "POST",
             tags_integration,
@@ -607,10 +607,10 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/facts/{factId}/tags/{tagId}
+        # /facts/{factId}/tags/{tagId}
         fact_tag_resource = fact_tags_resource.add_resource("{tagId}")
 
-        # DELETE /v1/facts/{factId}/tags/{tagId} - Remove tag from fact
+        # DELETE /facts/{factId}/tags/{tagId} - Remove tag from fact
         fact_tag_resource.add_method(
             "DELETE",
             tags_integration,
@@ -618,11 +618,11 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/feedback endpoints
-        feedback_resource = v1.add_resource("feedback")
+        # /feedback endpoints
+        feedback_resource = root.add_resource("feedback")
         feedback_integration = apigw.LambdaIntegration(feedback_lambda)
 
-        # POST /v1/feedback - Record feedback
+        # POST /feedback - Record feedback
         feedback_resource.add_method(
             "POST",
             feedback_integration,
@@ -630,7 +630,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # GET /v1/feedback/stats - Get user's feedback stats
+        # GET /feedback/stats - Get user's feedback stats
         feedback_stats_resource = feedback_resource.add_resource("stats")
         feedback_stats_resource.add_method(
             "GET",
@@ -639,7 +639,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # GET /v1/feedback/history - Get recent feedback
+        # GET /feedback/history - Get recent feedback
         feedback_history_resource = feedback_resource.add_resource("history")
         feedback_history_resource.add_method(
             "GET",
@@ -648,8 +648,8 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/queries/{queryId}/feedback - Rate a query
-        queries_resource = v1.add_resource("queries")
+        # /queries/{queryId}/feedback - Rate a query
+        queries_resource = root.add_resource("queries")
         query_resource = queries_resource.add_resource("{queryId}")
         query_feedback_resource = query_resource.add_resource("feedback")
         query_feedback_resource.add_method(
@@ -659,11 +659,11 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/reminders endpoints
-        reminders_resource = v1.add_resource("reminders")
+        # /reminders endpoints
+        reminders_resource = root.add_resource("reminders")
         reminders_integration = apigw.LambdaIntegration(reminders_lambda)
 
-        # POST /v1/reminders - Create reminder
+        # POST /reminders - Create reminder
         reminders_resource.add_method(
             "POST",
             reminders_integration,
@@ -671,7 +671,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # GET /v1/reminders - List reminders
+        # GET /reminders - List reminders
         reminders_resource.add_method(
             "GET",
             reminders_integration,
@@ -679,10 +679,10 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # /v1/reminders/{reminderId}
+        # /reminders/{reminderId}
         reminder_resource = reminders_resource.add_resource("{reminderId}")
 
-        # GET /v1/reminders/{reminderId} - Get reminder
+        # GET /reminders/{reminderId} - Get reminder
         reminder_resource.add_method(
             "GET",
             reminders_integration,
@@ -690,7 +690,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # PUT /v1/reminders/{reminderId} - Update reminder
+        # PUT /reminders/{reminderId} - Update reminder
         reminder_resource.add_method(
             "PUT",
             reminders_integration,
@@ -698,7 +698,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # DELETE /v1/reminders/{reminderId} - Delete/cancel reminder
+        # DELETE /reminders/{reminderId} - Delete/cancel reminder
         reminder_resource.add_method(
             "DELETE",
             reminders_integration,
@@ -706,7 +706,7 @@ class ApiStack(Stack):
             authorization_type=apigw.AuthorizationType.COGNITO,
         )
 
-        # POST /v1/reminders/{reminderId}/snooze - Snooze reminder
+        # POST /reminders/{reminderId}/snooze - Snooze reminder
         reminder_snooze_resource = reminder_resource.add_resource("snooze")
         reminder_snooze_resource.add_method(
             "POST",
