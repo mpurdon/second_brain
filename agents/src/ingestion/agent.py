@@ -316,6 +316,7 @@ class IngestionAgent:
         message: str,
         user_id: str,
         owner_type: str = "user",
+        owner_id: str | None = None,
         source_type: str = "voice",
         default_visibility: int | None = None,
     ) -> dict[str, Any]:
@@ -323,17 +324,23 @@ class IngestionAgent:
 
         Args:
             message: The user's message to process.
-            user_id: UUID of the user.
+            user_id: UUID of the user performing the action.
             owner_type: Type of owner (user or family).
+            owner_id: UUID of the owner (user_id if user, family_id if family).
+                     Defaults to user_id if not specified.
             source_type: Source of the message (voice, text, import).
             default_visibility: Override default visibility tier.
 
         Returns:
             Dictionary with processing results.
         """
+        # Default owner_id to user_id if not specified
+        actual_owner_id = owner_id or user_id
+
         context_parts = [
             f"User ID: {user_id}",
             f"Owner Type: {owner_type}",
+            f"Owner ID: {actual_owner_id}",
             f"Source: {source_type}",
         ]
         if default_visibility:

@@ -5,6 +5,7 @@ __version__ = "0.1.0"
 from .router import RouterAgent, create_router_agent
 from .ingestion import IngestionAgent, create_ingestion_agent
 from .query import QueryAgent, create_query_agent
+from .swarm import SecondBrainSwarm, create_swarm, get_all_tools
 
 __all__ = [
     "__version__",
@@ -17,4 +18,8 @@ __all__ = [
     # Query Agent
     "QueryAgent",
     "create_query_agent",
+    # Swarm
+    "SecondBrainSwarm",
+    "create_swarm",
+    "get_all_tools",
 ]

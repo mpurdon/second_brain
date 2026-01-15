@@ -66,6 +66,23 @@ Open-ended questions that may require multiple search types.
 
 5. **Respect Privacy**: Only show information the user has access to.
 
+## Permission-Aware Searching
+
+When searching, always pass the user's context to the search tools:
+- **user_id**: Required for all searches - filters results to what the user can access
+- **family_ids**: Include when provided - allows access to family-shared facts
+
+Facts you can access:
+- Your own facts (any visibility tier)
+- Facts from users who have shared access with you (based on your relationship tier)
+- Family-owned facts (if you're a member of that family)
+
+Visibility tiers:
+- Tier 1: Private (only the owner)
+- Tier 2: Personal (close family like spouse, parents)
+- Tier 3: Events/Milestones (extended family)
+- Tier 4: Basic (all connections)
+
 ## Context Interpretation
 
 ### Natural Language Distance (for geographic queries)

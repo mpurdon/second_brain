@@ -7,6 +7,19 @@ from strands import Agent, tool
 
 from .prompts import ROUTER_SYSTEM_PROMPT
 
+# Model IDs for cost optimization
+# Haiku: Fast, cheap - good for simple classification
+# Sonnet: Balanced - good for complex reasoning
+# Opus: Most capable - for complex multi-step tasks
+MODELS = {
+    "haiku": "anthropic.claude-3-5-haiku-20241022-v1:0",
+    "sonnet": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "opus": "anthropic.claude-3-opus-20240229-v1:0",
+}
+
+# Default to Haiku for routing (simple classification task)
+DEFAULT_ROUTER_MODEL = MODELS["haiku"]
+
 
 class RouterContext:
     """Context object passed through the routing process."""
@@ -154,20 +167,24 @@ def request_clarification(
 
 
 class RouterAgent:
-    """Router Agent that classifies intent and routes to specialized agents."""
+    """Router Agent that classifies intent and routes to specialized agents.
+
+    Uses Haiku by default for cost-efficient classification. Override with
+    model_id parameter for more complex routing decisions.
+    """
 
     def __init__(
         self,
-        model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        model_id: str | None = None,
     ):
         """Initialize the Router Agent.
 
         Args:
-            model_id: Bedrock model ID to use for the agent.
+            model_id: Bedrock model ID to use. Defaults to Haiku for cost efficiency.
         """
-        self.model_id = model_id
+        self.model_id = model_id or DEFAULT_ROUTER_MODEL
         self.agent = Agent(
-            model=model_id,
+            model=self.model_id,
             system_prompt=ROUTER_SYSTEM_PROMPT,
             tools=[
                 route_to_ingestion,
@@ -237,14 +254,18 @@ Analyze this message and route it to the appropriate agent using the available t
 
 
 def create_router_agent(
-    model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    model_id: str | None = None,
+    use_haiku: bool = True,
 ) -> RouterAgent:
     """Factory function to create a Router Agent.
 
     Args:
-        model_id: Bedrock model ID to use.
+        model_id: Bedrock model ID to use. If None, uses default based on use_haiku.
+        use_haiku: If True (default), use Haiku for cost efficiency.
 
     Returns:
         Configured RouterAgent instance.
     """
+    if model_id is None and not use_haiku:
+        model_id = MODELS["sonnet"]
     return RouterAgent(model_id=model_id)
