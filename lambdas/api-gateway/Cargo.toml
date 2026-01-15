@@ -19,12 +19,51 @@ path = "src/bin/briefing.rs"
 name = "calendar"
 path = "src/bin/calendar.rs"
 
+[[bin]]
+name = "calendar_oauth"
+path = "src/bin/calendar_oauth.rs"
+
+[[bin]]
+name = "families"
+path = "src/bin/families.rs"
+
+[[bin]]
+name = "relationships"
+path = "src/bin/relationships.rs"
+
+[[bin]]
+name = "user_signup"
+path = "src/bin/user_signup.rs"
+
+[[bin]]
+name = "entities"
+path = "src/bin/entities.rs"
+
+[[bin]]
+name = "locations"
+path = "src/bin/locations.rs"
+
+[[bin]]
+name = "tags"
+path = "src/bin/tags.rs"
+
+[[bin]]
+name = "feedback"
+path = "src/bin/feedback.rs"
+
+[[bin]]
+name = "reminders"
+path = "src/bin/reminders.rs"
+
 [dependencies]
 shared = { path = "../shared" }
 lambda_runtime.workspace = true
 lambda_http.workspace = true
 aws-config.workspace = true
 aws-sdk-bedrockagentruntime.workspace = true
+aws-sdk-lambda.workspace = true
+aws-sdk-secretsmanager.workspace = true
+sqlx.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
@@ -33,3 +72,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 validator.workspace = true
 uuid.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+base64 = "0.22"
+urlencoding = "2.1"
