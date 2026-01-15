@@ -15,6 +15,22 @@ from .calendar import (
     calendar_sync,
     calendar_create_event,
 )
+from .taxonomy import (
+    tag_cooccurrence_analysis,
+    untagged_facts_analysis,
+    tag_hierarchy_analysis,
+    suggest_tags_for_fact,
+    propose_taxonomy_changes,
+)
+from .scheduler import (
+    get_today_events,
+    get_upcoming_birthdays,
+    get_active_reminders,
+    get_entity_context,
+    queue_notification,
+    save_briefing,
+    mark_reminder_triggered,
+)
 
 __all__ = [
     # Database tools
@@ -39,4 +55,18 @@ __all__ = [
     "calendar_get_events_with_context",
     "calendar_sync",
     "calendar_create_event",
+    # Taxonomy tools
+    "tag_cooccurrence_analysis",
+    "untagged_facts_analysis",
+    "tag_hierarchy_analysis",
+    "suggest_tags_for_fact",
+    "propose_taxonomy_changes",
+    # Scheduler tools
+    "get_today_events",
+    "get_upcoming_birthdays",
+    "get_active_reminders",
+    "get_entity_context",
+    "queue_notification",
+    "save_briefing",
+    "mark_reminder_triggered",
 ]

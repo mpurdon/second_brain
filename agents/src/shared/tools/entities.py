@@ -37,8 +37,8 @@ def entity_search(
 
         # Base query with ownership check
         base_query = """
-            SELECT e.id, e.entity_type, e.name, e.canonical_name,
-                   e.attributes, e.created_at,
+            SELECT e.id, e.entity_type::text, e.name, e.normalized_name,
+                   e.metadata, e.created_at,
                    COUNT(f.id) as fact_count
             FROM entities e
             LEFT JOIN facts f ON f.about_entity_id = e.id
@@ -50,7 +50,7 @@ def entity_search(
 
         if query:
             # Use pg_trgm for fuzzy matching
-            conditions.append(f"e.name ILIKE ${param_idx} OR e.canonical_name ILIKE ${param_idx}")
+            conditions.append(f"e.name ILIKE ${param_idx} OR e.normalized_name ILIKE ${param_idx}")
             params.append(f"%{query}%")
             param_idx += 1
 
@@ -76,8 +76,8 @@ def entity_search(
                 "id": str(row["id"]),
                 "entity_type": row["entity_type"],
                 "name": row["name"],
-                "canonical_name": row["canonical_name"],
-                "attributes": dict(row["attributes"]) if row["attributes"] else {},
+                "normalized_name": row["normalized_name"],
+                "metadata": dict(row["metadata"]) if row["metadata"] else {},
                 "fact_count": row["fact_count"],
                 "created_at": row["created_at"].isoformat(),
             }
@@ -98,9 +98,12 @@ def entity_create(
     name: str,
     entity_type: str,
     owner_id: str,
+    created_by: str,
     owner_type: str = "user",
-    canonical_name: str | None = None,
-    attributes: dict[str, Any] | None = None,
+    description: str | None = None,
+    aliases: list[str] | None = None,
+    metadata: dict[str, Any] | None = None,
+    visibility_tier: int = 3,
 ) -> dict[str, Any]:
     """Create a new entity in the knowledge base.
 
@@ -109,37 +112,38 @@ def entity_create(
 
     Args:
         name: Display name for the entity (required).
-        entity_type: Type of entity (person, organization, place, project, event).
+        entity_type: Type of entity (person, organization, place, project, event, product, custom).
         owner_id: UUID of the user or family that owns this entity.
+        created_by: UUID of the user creating this entity.
         owner_type: Either 'user' or 'family'.
-        canonical_name: Optional normalized name for matching (lowercase, no spaces).
-        attributes: Optional dictionary of additional attributes.
+        description: Optional description of the entity.
+        aliases: Optional list of alternative names for the entity.
+        metadata: Optional dictionary of additional metadata.
+        visibility_tier: Visibility tier 1-4 (default 3).
 
     Returns:
         Dictionary with the created entity ID and details.
     """
     async def _create() -> dict[str, Any]:
-        # Generate canonical name if not provided
-        if canonical_name is None:
-            computed_canonical = name.lower().replace(" ", "_")
-        else:
-            computed_canonical = canonical_name
-
         import json
-        attrs_json = json.dumps(attributes or {})
+        metadata_json = json.dumps(metadata or {})
+        alias_list = aliases or []
 
         result = await execute_one(
             """
-            INSERT INTO entities (entity_type, name, canonical_name, owner_type, owner_id, attributes)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-            RETURNING id, created_at
+            INSERT INTO entities (entity_type, name, description, aliases, owner_type, owner_id, created_by, metadata, visibility_tier)
+            VALUES ($1::entity_type, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+            RETURNING id, normalized_name, created_at
             """,
             entity_type,
             name,
-            computed_canonical,
+            description,
+            alias_list,
             owner_type,
             UUID(owner_id),
-            attrs_json,
+            UUID(created_by),
+            metadata_json,
+            visibility_tier,
         )
 
         if not result:
@@ -150,7 +154,7 @@ def entity_create(
             "entity_id": str(result["id"]),
             "name": name,
             "entity_type": entity_type,
-            "canonical_name": computed_canonical,
+            "normalized_name": result["normalized_name"],
             "created_at": result["created_at"].isoformat(),
         }
 
@@ -161,38 +165,56 @@ def entity_create(
 def entity_get_details(
     user_id: str,
     entity_id: str,
+    family_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Get detailed information about an entity.
 
     Use this tool to retrieve complete information about an entity,
-    including all its attributes, locations, and recent facts.
+    including all its attributes, locations, relationships, and recent facts.
 
     Args:
         user_id: UUID of the user requesting the information.
         entity_id: UUID of the entity to retrieve.
+        family_ids: Optional list of family IDs the user belongs to.
 
     Returns:
-        Dictionary with entity details, locations, and related facts.
+        Dictionary with entity details, locations, relationships, and related facts.
     """
     async def _get_details() -> dict[str, Any]:
+        family_uuid_list = [UUID(fid) for fid in (family_ids or [])]
+
         # Get entity details
         entity = await execute_one(
             """
-            SELECT e.id, e.entity_type, e.name, e.canonical_name,
-                   e.owner_type, e.owner_id, e.attributes, e.created_at
+            SELECT e.id, e.entity_type::text, e.name, e.normalized_name, e.description,
+                   e.aliases, e.owner_type, e.owner_id, e.metadata, e.visibility_tier,
+                   e.linked_user_id, e.created_at, e.updated_at
             FROM entities e
             WHERE e.id = $1
             AND (
                 (e.owner_type = 'user' AND e.owner_id = $2)
-                OR e.owner_type = 'family'
+                OR (e.owner_type = 'family' AND e.owner_id = ANY($3::uuid[]))
             )
             """,
             UUID(entity_id),
             UUID(user_id),
+            family_uuid_list,
         )
 
         if not entity:
             return {"status": "error", "message": "Entity not found or access denied"}
+
+        # Get entity attributes
+        attributes = await execute_query(
+            """
+            SELECT attribute_name, attribute_value, valid_from, valid_to
+            FROM entity_attributes
+            WHERE entity_id = $1
+            AND (valid_to IS NULL OR valid_to > CURRENT_DATE)
+            ORDER BY attribute_name
+            """,
+            UUID(entity_id),
+        )
 
         # Get entity locations
         locations = await execute_query(
@@ -207,10 +229,26 @@ def entity_get_details(
             UUID(entity_id),
         )
 
+        # Get entity relationships
+        relationships = await execute_query(
+            """
+            SELECT er.id, er.relationship_type,
+                   CASE WHEN er.source_entity_id = $1 THEN er.target_entity_id ELSE er.source_entity_id END as related_id,
+                   e.name as related_name, e.entity_type::text as related_type,
+                   CASE WHEN er.source_entity_id = $1 THEN 'outgoing' ELSE 'incoming' END as direction
+            FROM entity_relationships er
+            JOIN entities e ON e.id = CASE WHEN er.source_entity_id = $1 THEN er.target_entity_id ELSE er.source_entity_id END
+            WHERE (er.source_entity_id = $1 OR er.target_entity_id = $1)
+            AND (er.valid_to IS NULL OR er.valid_to > CURRENT_DATE)
+            ORDER BY e.name
+            """,
+            UUID(entity_id),
+        )
+
         # Get recent facts about this entity
         facts = await execute_query(
             """
-            SELECT f.id, f.content, f.importance, f.recorded_at
+            SELECT f.id, f.content, f.importance, f.recorded_at, f.valid_from, f.valid_to
             FROM facts f
             WHERE f.about_entity_id = $1
             AND (f.valid_to IS NULL OR f.valid_to > CURRENT_DATE)
@@ -220,19 +258,30 @@ def entity_get_details(
             UUID(entity_id),
         )
 
-        # Get related entities (via entity_relationships if we had that table)
-        # For now, just return the entity info
-
         return {
             "status": "success",
             "entity": {
                 "id": str(entity["id"]),
                 "entity_type": entity["entity_type"],
                 "name": entity["name"],
-                "canonical_name": entity["canonical_name"],
-                "attributes": dict(entity["attributes"]) if entity["attributes"] else {},
+                "normalized_name": entity["normalized_name"],
+                "description": entity["description"],
+                "aliases": list(entity["aliases"]) if entity["aliases"] else [],
+                "metadata": dict(entity["metadata"]) if entity["metadata"] else {},
+                "visibility_tier": entity["visibility_tier"],
+                "linked_user_id": str(entity["linked_user_id"]) if entity["linked_user_id"] else None,
                 "created_at": entity["created_at"].isoformat(),
+                "updated_at": entity["updated_at"].isoformat(),
             },
+            "attributes": [
+                {
+                    "name": attr["attribute_name"],
+                    "value": attr["attribute_value"],
+                    "valid_from": attr["valid_from"].isoformat() if attr["valid_from"] else None,
+                    "valid_to": attr["valid_to"].isoformat() if attr["valid_to"] else None,
+                }
+                for attr in attributes
+            ],
             "locations": [
                 {
                     "label": loc["label"],
@@ -242,12 +291,25 @@ def entity_get_details(
                 }
                 for loc in locations
             ],
+            "relationships": [
+                {
+                    "id": str(rel["id"]),
+                    "relationship_type": rel["relationship_type"],
+                    "related_entity_id": str(rel["related_id"]),
+                    "related_entity_name": rel["related_name"],
+                    "related_entity_type": rel["related_type"],
+                    "direction": rel["direction"],
+                }
+                for rel in relationships
+            ],
             "recent_facts": [
                 {
                     "id": str(f["id"]),
                     "content": f["content"],
                     "importance": f["importance"],
                     "recorded_at": f["recorded_at"].isoformat(),
+                    "valid_from": f["valid_from"].isoformat() if f["valid_from"] else None,
+                    "valid_to": f["valid_to"].isoformat() if f["valid_to"] else None,
                 }
                 for f in facts
             ],
@@ -260,7 +322,7 @@ def entity_get_details(
 def entity_link_to_fact(
     fact_id: str,
     entity_id: str,
-    mention_type: str = "about",
+    role: str = "reference",
     confidence: float = 1.0,
 ) -> dict[str, Any]:
     """Link an entity mention to a fact.
@@ -271,7 +333,7 @@ def entity_link_to_fact(
     Args:
         fact_id: UUID of the fact.
         entity_id: UUID of the entity being mentioned.
-        mention_type: Type of mention (about, mentions, related_to).
+        role: Role of the entity in the fact (subject, object, location, organization, reference).
         confidence: Confidence score 0-1 for the entity extraction.
 
     Returns:
@@ -280,15 +342,14 @@ def entity_link_to_fact(
     async def _link() -> dict[str, Any]:
         await execute_command(
             """
-            INSERT INTO entity_mentions (fact_id, entity_id, mention_type, confidence)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (fact_id, entity_id) DO UPDATE SET
-                mention_type = EXCLUDED.mention_type,
+            INSERT INTO entity_mentions (fact_id, entity_id, role, confidence)
+            VALUES ($1, $2, $3::mention_role, $4)
+            ON CONFLICT (fact_id, entity_id, role) DO UPDATE SET
                 confidence = EXCLUDED.confidence
             """,
             UUID(fact_id),
             UUID(entity_id),
-            mention_type,
+            role,
             confidence,
         )
 
@@ -296,7 +357,7 @@ def entity_link_to_fact(
             "status": "success",
             "fact_id": fact_id,
             "entity_id": entity_id,
-            "mention_type": mention_type,
+            "role": role,
         }
 
     return asyncio.get_event_loop().run_until_complete(_link())

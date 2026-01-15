@@ -57,17 +57,20 @@ def generate_embedding(text: str) -> dict[str, Any]:
 def semantic_search(
     user_id: str,
     query: str,
+    family_ids: list[str] | None = None,
     limit: int = 10,
     similarity_threshold: float = 0.7,
 ) -> dict[str, Any]:
-    """Search for facts using semantic similarity.
+    """Search for facts using semantic similarity with permission filtering.
 
     Use this tool when you need to find facts related to a concept or topic,
     even if the exact words don't match. Results are ranked by semantic similarity.
+    Automatically filters results based on the user's access permissions.
 
     Args:
         user_id: UUID of the user performing the search.
         query: Natural language query to search for.
+        family_ids: Optional list of family UUIDs to include in search scope.
         limit: Maximum number of results to return (default 10).
         similarity_threshold: Minimum similarity score 0-1 (default 0.7).
 
@@ -82,7 +85,14 @@ def semantic_search(
 
         query_embedding = embedding_result["embedding"]
 
-        # Search using pgvector cosine similarity
+        # Build family IDs array for query
+        family_uuid_list = [UUID(fid) for fid in (family_ids or [])]
+
+        # Permission-aware search using pgvector cosine similarity
+        # This query handles:
+        # 1. User's own facts (always visible)
+        # 2. Facts from users the viewer has relationships with (filtered by visibility_tier)
+        # 3. Family-owned facts (visible to all family members)
         search_query = """
             WITH query_embedding AS (
                 SELECT $1::vector AS vec
@@ -93,6 +103,8 @@ def semantic_search(
                 f.importance,
                 f.visibility_tier,
                 f.recorded_at,
+                f.owner_type,
+                f.owner_id,
                 e.name as entity_name,
                 1 - (fe.embedding <=> qe.vec) as similarity
             FROM facts f
@@ -104,13 +116,17 @@ def semantic_search(
                 AND f.owner_id = uac.target_user_id
                 AND uac.viewer_user_id = $2
             WHERE (
+                -- User's own facts
                 (f.owner_type = 'user' AND f.owner_id = $2)
-                OR (f.owner_type = 'user' AND uac.access_tier <= f.visibility_tier)
+                -- Facts from related users (with permission check)
+                OR (f.owner_type = 'user' AND uac.access_tier IS NOT NULL AND uac.access_tier <= f.visibility_tier)
+                -- Family-owned facts (if user is in that family)
+                OR (f.owner_type = 'family' AND f.owner_id = ANY($3::uuid[]))
             )
             AND (f.valid_to IS NULL OR f.valid_to > CURRENT_DATE)
-            AND 1 - (fe.embedding <=> qe.vec) >= $3
+            AND 1 - (fe.embedding <=> qe.vec) >= $4
             ORDER BY similarity DESC
-            LIMIT $4
+            LIMIT $5
         """
 
         # Convert embedding list to PostgreSQL vector format
@@ -120,6 +136,7 @@ def semantic_search(
             search_query,
             embedding_str,
             UUID(user_id),
+            family_uuid_list,
             similarity_threshold,
             limit,
         )
@@ -129,9 +146,11 @@ def semantic_search(
                 "id": str(row["id"]),
                 "content": row["content"],
                 "importance": row["importance"],
+                "visibility_tier": row["visibility_tier"],
                 "similarity": float(row["similarity"]),
                 "recorded_at": row["recorded_at"].isoformat(),
                 "entity_name": row["entity_name"],
+                "owner_type": row["owner_type"],
             }
             for row in results
         ]
