@@ -139,19 +139,20 @@ class SchedulingStack(Stack):
         database_secret.grant_read(calendar_sync_lambda)
         google_secret.grant_read(calendar_sync_lambda)
 
-        # Permission to list and read user calendar secrets
+        # Permission to list secrets (for discovering users with connected calendars)
         calendar_sync_lambda.add_to_role_policy(
             iam.PolicyStatement(
-                actions=[
-                    "secretsmanager:ListSecrets",
-                    "secretsmanager:GetSecretValue",
-                ],
+                actions=["secretsmanager:ListSecrets"],
                 resources=["*"],
-                conditions={
-                    "StringLike": {
-                        "secretsmanager:Name": "second-brain/calendar/*"
-                    }
-                },
+            )
+        )
+        # Permission to read user calendar secrets
+        calendar_sync_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=[
+                    f"arn:aws:secretsmanager:{Stack.of(self).region}:{Stack.of(self).account}:secret:second-brain/calendar/*",
+                ],
             )
         )
 

@@ -167,6 +167,35 @@ class ApiStack(Stack):
             "Handles /calendar requests",
         )
 
+        # Calendar OAuth Lambda (needs secrets access for Google OAuth)
+        # Note: OAUTH_REDIRECT_URI will be set after API creation via CfnOutput
+        calendar_oauth_env = {
+            "GOOGLE_OAUTH_SECRET_ARN": "second-brain/google-oauth",
+            "LOG_LEVEL": "INFO",
+        }
+        calendar_oauth_lambda = create_rust_lambda(
+            "CalendarOAuthLambda",
+            "calendar_oauth",
+            "Handles Google Calendar OAuth flow",
+            env=calendar_oauth_env,
+            needs_agent_invoke=False,
+            needs_secrets=False,  # Will add specific permissions below
+        )
+        # Grant access to Google OAuth secret and user calendar secrets
+        calendar_oauth_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:CreateSecret",
+                    "secretsmanager:PutSecretValue",
+                ],
+                resources=[
+                    f"arn:aws:secretsmanager:us-east-1:{Stack.of(self).account}:secret:second-brain/google-oauth*",
+                    f"arn:aws:secretsmanager:us-east-1:{Stack.of(self).account}:secret:second-brain/calendar/*",
+                ],
+            )
+        )
+
         # Families Lambda (database access)
         families_lambda = create_rust_lambda(
             "FamiliesLambda",
@@ -309,6 +338,26 @@ class ApiStack(Stack):
             apigw.LambdaIntegration(calendar_lambda),
             authorizer=authorizer,
             authorization_type=apigw.AuthorizationType.COGNITO,
+        )
+
+        # /calendar/oauth - OAuth flow endpoints (public, no auth required)
+        calendar_oauth_resource = calendar_resource.add_resource("oauth")
+        calendar_oauth_integration = apigw.LambdaIntegration(calendar_oauth_lambda)
+
+        # GET /calendar/oauth/start - Initiate OAuth flow (public)
+        calendar_oauth_start_resource = calendar_oauth_resource.add_resource("start")
+        calendar_oauth_start_resource.add_method(
+            "GET",
+            calendar_oauth_integration,
+            authorization_type=apigw.AuthorizationType.NONE,
+        )
+
+        # GET /calendar/oauth/callback - Google OAuth callback (public)
+        calendar_oauth_callback_resource = calendar_oauth_resource.add_resource("callback")
+        calendar_oauth_callback_resource.add_method(
+            "GET",
+            calendar_oauth_integration,
+            authorization_type=apigw.AuthorizationType.NONE,
         )
 
         # /families endpoints
@@ -598,6 +647,14 @@ class ApiStack(Stack):
         # /facts/{factId}/tags - Fact tagging
         fact_resource = facts_resource.add_resource("{factId}")
         fact_tags_resource = fact_resource.add_resource("tags")
+
+        # GET /facts/{factId}/tags - Get tags for fact
+        fact_tags_resource.add_method(
+            "GET",
+            tags_integration,
+            authorizer=authorizer,
+            authorization_type=apigw.AuthorizationType.COGNITO,
+        )
 
         # POST /facts/{factId}/tags - Apply tags to fact
         fact_tags_resource.add_method(

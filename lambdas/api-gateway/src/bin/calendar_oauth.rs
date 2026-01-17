@@ -71,7 +71,7 @@ impl AppState {
             .to_string();
 
         let redirect_uri = std::env::var("OAUTH_REDIRECT_URI")
-            .unwrap_or_else(|_| "https://api.example.com/v1/calendar/oauth/callback".to_string());
+            .unwrap_or_else(|_| "https://api.example.com/calendar/oauth/callback".to_string());
 
         Ok(Self {
             http_client: reqwest::Client::new(),
@@ -197,12 +197,14 @@ fn build_auth_url(state: &AppState, user_id: &str) -> String {
 }
 
 async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>, Error> {
-    let path = event.uri().path();
+    let raw_path = event.uri().path();
+    // Strip /api stage prefix if present (API Gateway REST API includes stage in path)
+    let path = raw_path.strip_prefix("/api").unwrap_or(raw_path);
     let method = event.method().as_str();
 
     match (method, path) {
         // Initiate OAuth flow - returns URL to redirect user to
-        ("GET", "/v1/calendar/oauth/start") => {
+        ("GET", "/calendar/oauth/start") => {
             // Get user_id from query params or auth context
             let params = event.query_string_parameters();
             let user_id = params.first("user_id").unwrap_or("unknown").to_string();
@@ -226,7 +228,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // OAuth callback from Google
-        ("GET", "/v1/calendar/oauth/callback") => {
+        ("GET", "/calendar/oauth/callback") => {
             let params = event.query_string_parameters();
 
             // Check for error from Google

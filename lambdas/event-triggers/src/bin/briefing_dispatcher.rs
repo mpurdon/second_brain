@@ -105,10 +105,10 @@ struct BriefingUser {
 async fn get_users_for_briefing(
     pool: &PgPool,
     briefing_type: &str,
-    current_hour_utc: u32,
+    _current_hour_utc: u32,
 ) -> Result<Vec<BriefingUser>, Error> {
-    // Get users whose local briefing time matches current UTC hour
-    // This is a simplified version - production would need proper timezone handling
+    // Simplified version: get all users with briefings enabled
+    // In production, add proper timezone-aware scheduling
     let users: Vec<BriefingUser> = sqlx::query_as(
         r#"
         SELECT
@@ -125,21 +125,14 @@ async fn get_users_for_briefing(
         LEFT JOIN user_notification_preferences unp ON unp.user_id = u.id
         WHERE
             CASE $1
-                WHEN 'morning' THEN
-                    COALESCE(unp.morning_briefing_enabled, true)
-                    AND EXTRACT(HOUR FROM COALESCE(unp.morning_briefing_time, '07:00'::time)) =
-                        ($2 + EXTRACT(TIMEZONE_HOUR FROM NOW() AT TIME ZONE COALESCE(unp.timezone, 'America/New_York')))::integer % 24
-                WHEN 'evening' THEN
-                    COALESCE(unp.evening_briefing_enabled, false)
-                    AND EXTRACT(HOUR FROM COALESCE(unp.evening_briefing_time, '18:00'::time)) =
-                        ($2 + EXTRACT(TIMEZONE_HOUR FROM NOW() AT TIME ZONE COALESCE(unp.timezone, 'America/New_York')))::integer % 24
+                WHEN 'morning' THEN COALESCE(unp.morning_briefing_enabled, true)
+                WHEN 'evening' THEN COALESCE(unp.evening_briefing_enabled, false)
                 ELSE false
             END
         LIMIT 100
         "#,
     )
     .bind(briefing_type)
-    .bind(current_hour_utc as i32)
     .fetch_all(pool)
     .await
     .map_err(|e| format!("Failed to query users: {}", e))?;

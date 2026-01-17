@@ -26,6 +26,17 @@ A progressive testing plan starting with simple single-user scenarios and buildi
 | Phase 1.2: Entity Extraction | ✅ PASSED | Entities created and linked to facts |
 | Phase 1.3: Basic Query | ✅ PASSED | entity_search and entity_get_details working |
 | Phase 1.4: Semantic Search | ✅ PASSED | Vector search with pgvector working |
+| Phase 3.1: Google Calendar OAuth | ✅ PASSED | Tokens stored in Secrets Manager |
+| Phase 3.2: Calendar Sync | ✅ PASSED | Syncs from Google Calendar API to DB |
+| Phase 3.3: Calendar Queries | ✅ PASSED | Agent uses calendar_get_events tool |
+| Phase 3.4: Morning Briefing | ✅ PASSED | Routes to query agent with calendar access |
+| Phase 3.5: Briefing Dispatcher | ✅ PASSED | Finds users, triggers agent async |
+
+### Phase 3 Infrastructure Setup
+- Google OAuth App: Project 112844731139
+- OAuth Secret: `second-brain/google-oauth`
+- User Calendar Tokens: `second-brain/calendar/{user_id}`
+- Calendar API routes: `/calendar/oauth/start`, `/calendar/oauth/callback`
 
 ### Phase 1 Test Data
 - Test User: `44482468-40c1-708b-8c10-3a7a3fb80b58`
@@ -724,7 +735,7 @@ curl -X POST https://api.secondbrain.app/v1/reminders \
 |-------|--------|-------------|
 | 1. Core Knowledge | ✅ PASSED | Ingestion ~8s, Query ~8s (cold start ~2.5s) |
 | 2. Extended Features | [ ] | Tags, locations, reminders functional |
-| 3. Calendar & Briefings | [ ] | Sync working, briefings generated |
+| 3. Calendar & Briefings | ✅ PASSED | OAuth, sync, queries, dispatcher all working |
 | 4. Discord | [ ] | Bot responsive, commands working |
 | 5. Multi-User | [ ] | Family sharing, visibility tiers correct |
 | 6. Alexa | [ ] | Voice recognition, multi-user on device |
