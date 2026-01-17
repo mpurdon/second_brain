@@ -1,11 +1,11 @@
 //! Family Management Lambda - Handles family CRUD operations.
 //!
 //! Endpoints:
-//! - POST /v1/families - Create a new family
-//! - GET /v1/families - List user's families
-//! - GET /v1/families/{id} - Get family details
-//! - POST /v1/families/{id}/members - Invite member
-//! - DELETE /v1/families/{id}/members/{user_id} - Remove member
+//! - POST /families - Create a new family
+//! - GET /families - List user's families
+//! - GET /families/{id} - Get family details
+//! - POST /families/{id}/members - Invite member
+//! - DELETE /families/{id}/members/{user_id} - Remove member
 
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use serde::{Deserialize, Serialize};
@@ -125,11 +125,13 @@ fn extract_user_id(event: &Request) -> Result<Uuid, Error> {
 }
 
 async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>, Error> {
-    let path = event.uri().path();
+    let raw_path = event.uri().path();
+    // Strip /api stage prefix if present (API Gateway REST API includes stage in path)
+    let path = raw_path.strip_prefix("/api").unwrap_or(raw_path);
     let method = event.method().as_str();
 
     // Extract user_id from auth context
-    let user_id = match extract_user_id(&event) {
+    let cognito_sub = match extract_user_id(&event) {
         Ok(id) => id,
         Err(e) => {
             return Ok(json_response(
@@ -143,9 +145,30 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
     };
 
+    // Look up database user_id from Cognito sub
+    let user_id: Uuid = match sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE cognito_sub = $1::text"
+    )
+    .bind(cognito_sub)
+    .fetch_optional(&state.db_pool)
+    .await
+    .map_err(|e| format!("Failed to lookup user: {}", e))? {
+        Some(id) => id,
+        None => {
+            return Ok(json_response(
+                401,
+                &ApiResponse::<()> {
+                    success: false,
+                    data: None,
+                    error: Some("User not registered".to_string()),
+                },
+            )?);
+        }
+    };
+
     match (method, path) {
         // Create family
-        ("POST", "/v1/families") => {
+        ("POST", "/families") => {
             let body = event.body();
             let request: CreateFamilyRequest = serde_json::from_slice(body)
                 .map_err(|e| format!("Invalid request body: {}", e))?;
@@ -196,7 +219,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // List user's families
-        ("GET", "/v1/families") => {
+        ("GET", "/families") => {
             let families: Vec<FamilyResponse> = sqlx::query_as::<_, (Uuid, String, Option<String>, Uuid, chrono::DateTime<chrono::Utc>, i64)>(
                 r#"
                 SELECT f.id, f.name, f.description, f.created_by, f.created_at,
@@ -233,8 +256,8 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Get family details or members
-        _ if path.starts_with("/v1/families/") => {
-            let path_parts: Vec<&str> = path.trim_start_matches("/v1/families/").split('/').collect();
+        _ if path.starts_with("/families/") => {
+            let path_parts: Vec<&str> = path.trim_start_matches("/families/").split('/').collect();
 
             let family_id = Uuid::parse_str(path_parts[0])
                 .map_err(|_| "Invalid family ID")?;
@@ -261,7 +284,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
             }
 
             match (method, path_parts.len()) {
-                // GET /v1/families/{id} - Get family details
+                // GET /families/{id} - Get family details
                 ("GET", 1) => {
                     let family: Option<(Uuid, String, Option<String>, Uuid, chrono::DateTime<chrono::Utc>)> =
                         sqlx::query_as(
@@ -325,7 +348,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                     }
                 }
 
-                // POST /v1/families/{id}/members - Invite member
+                // POST /families/{id}/members - Invite member
                 ("POST", 2) if path_parts[1] == "members" => {
                     // Check if user is admin
                     let is_admin: bool = sqlx::query_scalar(
@@ -406,7 +429,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                     }
                 }
 
-                // DELETE /v1/families/{id}/members/{user_id} - Remove member
+                // DELETE /families/{id}/members/{user_id} - Remove member
                 ("DELETE", 3) if path_parts[1] == "members" => {
                     let target_user_id = Uuid::parse_str(path_parts[2])
                         .map_err(|_| "Invalid user ID")?;

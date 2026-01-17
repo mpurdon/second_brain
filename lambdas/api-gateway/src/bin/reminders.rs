@@ -1,12 +1,12 @@
 //! Reminders API Lambda - CRUD operations for reminders.
 //!
 //! Endpoints:
-//! - POST /v1/reminders - Create a reminder
-//! - GET /v1/reminders - List reminders
-//! - GET /v1/reminders/{id} - Get a single reminder
-//! - PUT /v1/reminders/{id} - Update a reminder
-//! - POST /v1/reminders/{id}/snooze - Snooze a reminder
-//! - DELETE /v1/reminders/{id} - Delete a reminder
+//! - POST /reminders - Create a reminder
+//! - GET /reminders - List reminders
+//! - GET /reminders/{id} - Get a single reminder
+//! - PUT /reminders/{id} - Update a reminder
+//! - POST /reminders/{id}/snooze - Snooze a reminder
+//! - DELETE /reminders/{id} - Delete a reminder
 
 use chrono::{DateTime, NaiveTime, Utc};
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
@@ -27,8 +27,8 @@ struct CreateReminderRequest {
     trigger_type: String, // time, location, event, recurring
     trigger_config: serde_json::Value,
     priority: Option<i16>,
-    entity_id: Option<String>,
-    related_fact_ids: Option<Vec<String>>,
+    related_entity_id: Option<String>,
+    related_fact_id: Option<String>,
 }
 
 /// Update reminder request
@@ -63,8 +63,8 @@ struct ReminderRow {
     next_trigger_at: Option<DateTime<Utc>>,
     last_triggered_at: Option<DateTime<Utc>>,
     snooze_until: Option<DateTime<Utc>>,
-    entity_id: Option<Uuid>,
-    related_fact_ids: Option<Vec<Uuid>>,
+    related_entity_id: Option<Uuid>,
+    related_fact_id: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -83,8 +83,8 @@ struct ReminderResponse {
     next_trigger_at: Option<String>,
     last_triggered_at: Option<String>,
     snooze_until: Option<String>,
-    entity_id: Option<String>,
-    related_fact_ids: Vec<String>,
+    related_entity_id: Option<String>,
+    related_fact_id: Option<String>,
     created_at: String,
     updated_at: String,
 }
@@ -102,13 +102,8 @@ impl From<ReminderRow> for ReminderResponse {
             next_trigger_at: row.next_trigger_at.map(|dt| dt.to_rfc3339()),
             last_triggered_at: row.last_triggered_at.map(|dt| dt.to_rfc3339()),
             snooze_until: row.snooze_until.map(|dt| dt.to_rfc3339()),
-            entity_id: row.entity_id.map(|u| u.to_string()),
-            related_fact_ids: row
-                .related_fact_ids
-                .unwrap_or_default()
-                .into_iter()
-                .map(|u| u.to_string())
-                .collect(),
+            related_entity_id: row.related_entity_id.map(|u| u.to_string()),
+            related_fact_id: row.related_fact_id.map(|u| u.to_string()),
             created_at: row.created_at.to_rfc3339(),
             updated_at: row.updated_at.to_rfc3339(),
         }
@@ -195,9 +190,11 @@ fn calculate_next_trigger(
 ) -> Option<DateTime<Utc>> {
     match trigger_type {
         "time" => {
-            // Direct datetime trigger
+            // Direct datetime trigger - support multiple field names for compatibility
             trigger_config
-                .get("triggerAt")
+                .get("scheduledAt")
+                .or_else(|| trigger_config.get("triggerAt"))
+                .or_else(|| trigger_config.get("at"))
                 .and_then(|v| v.as_str())
                 .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.with_timezone(&Utc))
@@ -235,12 +232,14 @@ fn calculate_next_trigger(
 
 async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>, Error> {
     let method = event.method().as_str();
-    let path = event.uri().path();
+    let raw_path = event.uri().path();
+    // Strip /api stage prefix if present (API Gateway REST API includes stage in path)
+    let path = raw_path.strip_prefix("/api").unwrap_or(raw_path);
 
     info!("Reminders request: {} {}", method, path);
 
     // Extract user
-    let user_id = match extract_user_id(&event) {
+    let cognito_sub = match extract_user_id(&event) {
         Ok(id) => id,
         Err(e) => {
             return Ok(json_response(
@@ -254,9 +253,30 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
     };
 
+    // Look up database user_id from Cognito sub
+    let user_id: Uuid = match sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE cognito_sub = $1::text"
+    )
+    .bind(cognito_sub)
+    .fetch_optional(&state.db_pool)
+    .await
+    .map_err(|e| format!("Failed to lookup user: {}", e))? {
+        Some(id) => id,
+        None => {
+            return Ok(json_response(
+                401,
+                &ApiResponse::<()> {
+                    success: false,
+                    data: None,
+                    error: Some("User not registered".to_string()),
+                },
+            )?)
+        }
+    };
+
     match (method, path) {
         // Create reminder
-        ("POST", "/v1/reminders") => {
+        ("POST", "/reminders") => {
             let body = event.body();
             let body_str = std::str::from_utf8(body.as_ref()).unwrap_or("{}");
             let request: CreateReminderRequest =
@@ -278,16 +298,15 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                 )?);
             }
 
-            let entity_id = request
-                .entity_id
+            let related_entity_id = request
+                .related_entity_id
                 .as_ref()
                 .and_then(|id| Uuid::parse_str(id).ok());
 
-            let related_fact_ids: Option<Vec<Uuid>> = request.related_fact_ids.as_ref().map(|ids| {
-                ids.iter()
-                    .filter_map(|id| Uuid::parse_str(id).ok())
-                    .collect()
-            });
+            let related_fact_id = request
+                .related_fact_id
+                .as_ref()
+                .and_then(|id| Uuid::parse_str(id).ok());
 
             let next_trigger_at = calculate_next_trigger(&request.trigger_type, &request.trigger_config);
             let priority = request.priority.unwrap_or(2); // Default medium priority
@@ -297,7 +316,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                 INSERT INTO reminders (
                     user_id, title, description, trigger_type,
                     trigger_config, priority, next_trigger_at,
-                    entity_id, related_fact_ids
+                    related_entity_id, related_fact_id
                 ) VALUES (
                     $1, $2, $3, $4::reminder_trigger_type,
                     $5, $6, $7,
@@ -307,7 +326,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                     id, user_id, title, description,
                     trigger_type::text, trigger_config, priority,
                     status::text, next_trigger_at, last_triggered_at,
-                    snooze_until, entity_id, related_fact_ids,
+                    snooze_until, related_entity_id, related_fact_id,
                     created_at, updated_at
                 "#,
             )
@@ -318,8 +337,8 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
             .bind(&request.trigger_config)
             .bind(priority)
             .bind(next_trigger_at)
-            .bind(entity_id)
-            .bind(&related_fact_ids)
+            .bind(related_entity_id)
+            .bind(related_fact_id)
             .fetch_one(&state.db_pool)
             .await
             .map_err(|e| format!("Failed to create reminder: {}", e))?;
@@ -335,7 +354,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // List reminders
-        ("GET", "/v1/reminders") => {
+        ("GET", "/reminders") => {
             let params = event.query_string_parameters();
             let status = params.first("status");
             let trigger_type = params.first("triggerType");
@@ -354,7 +373,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                     id, user_id, title, description,
                     trigger_type::text, trigger_config, priority,
                     status::text, next_trigger_at, last_triggered_at,
-                    snooze_until, entity_id, related_fact_ids,
+                    snooze_until, related_entity_id, related_fact_id,
                     created_at, updated_at
                 FROM reminders
                 WHERE user_id = $1
@@ -427,11 +446,11 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Get single reminder
-        _ if path.starts_with("/v1/reminders/")
+        _ if path.starts_with("/reminders/")
             && !path.contains("/snooze")
             && method == "GET" =>
         {
-            let reminder_id = path.trim_start_matches("/v1/reminders/");
+            let reminder_id = path.trim_start_matches("/reminders/");
             let reminder_uuid =
                 Uuid::parse_str(reminder_id).map_err(|_| "Invalid reminder ID")?;
 
@@ -441,7 +460,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                     id, user_id, title, description,
                     trigger_type::text, trigger_config, priority,
                     status::text, next_trigger_at, last_triggered_at,
-                    snooze_until, entity_id, related_fact_ids,
+                    snooze_until, related_entity_id, related_fact_id,
                     created_at, updated_at
                 FROM reminders
                 WHERE id = $1 AND user_id = $2
@@ -474,11 +493,11 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Update reminder
-        _ if path.starts_with("/v1/reminders/")
+        _ if path.starts_with("/reminders/")
             && !path.contains("/snooze")
             && method == "PUT" =>
         {
-            let reminder_id = path.trim_start_matches("/v1/reminders/");
+            let reminder_id = path.trim_start_matches("/reminders/");
             let reminder_uuid =
                 Uuid::parse_str(reminder_id).map_err(|_| "Invalid reminder ID")?;
 
@@ -551,7 +570,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                     id, user_id, title, description,
                     trigger_type::text, trigger_config, priority,
                     status::text, next_trigger_at, last_triggered_at,
-                    snooze_until, entity_id, related_fact_ids,
+                    snooze_until, related_entity_id, related_fact_id,
                     created_at, updated_at
                 "#,
                 updates.join(", ")
@@ -605,7 +624,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         // Snooze reminder
         _ if path.ends_with("/snooze") && method == "POST" => {
             let reminder_id = path
-                .trim_start_matches("/v1/reminders/")
+                .trim_start_matches("/reminders/")
                 .trim_end_matches("/snooze");
             let reminder_uuid =
                 Uuid::parse_str(reminder_id).map_err(|_| "Invalid reminder ID")?;
@@ -628,7 +647,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                     id, user_id, title, description,
                     trigger_type::text, trigger_config, priority,
                     status::text, next_trigger_at, last_triggered_at,
-                    snooze_until, entity_id, related_fact_ids,
+                    snooze_until, related_entity_id, related_fact_id,
                     created_at, updated_at
                 "#,
             )
@@ -660,8 +679,8 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Delete reminder
-        _ if path.starts_with("/v1/reminders/") && method == "DELETE" => {
-            let reminder_id = path.trim_start_matches("/v1/reminders/");
+        _ if path.starts_with("/reminders/") && method == "DELETE" => {
+            let reminder_id = path.trim_start_matches("/reminders/");
             let reminder_uuid =
                 Uuid::parse_str(reminder_id).map_err(|_| "Invalid reminder ID")?;
 

@@ -1,9 +1,9 @@
 //! User Feedback Lambda - Tracks user interactions for learning.
 //!
 //! Endpoints:
-//! - POST /v1/feedback - Record feedback
-//! - GET /v1/feedback/stats - Get user's feedback stats
-//! - POST /v1/queries/{id}/feedback - Rate a query response
+//! - POST /feedback - Record feedback
+//! - GET /feedback/stats - Get user's feedback stats
+//! - POST /queries/{id}/feedback - Rate a query response
 
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use serde::{Deserialize, Serialize};
@@ -124,12 +124,14 @@ fn extract_user_id(event: &Request) -> Result<Uuid, Error> {
 
 async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>, Error> {
     let method = event.method().as_str();
-    let path = event.uri().path();
+    let raw_path = event.uri().path();
+    // Strip /api stage prefix if present (API Gateway REST API includes stage in path)
+    let path = raw_path.strip_prefix("/api").unwrap_or(raw_path);
 
     info!("Feedback request: {} {}", method, path);
 
     // Extract user
-    let user_id = match extract_user_id(&event) {
+    let cognito_sub = match extract_user_id(&event) {
         Ok(id) => id,
         Err(e) => {
             return Ok(json_response(
@@ -143,9 +145,30 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
     };
 
+    // Look up database user_id from Cognito sub
+    let user_id: Uuid = match sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE cognito_sub = $1::text"
+    )
+    .bind(cognito_sub)
+    .fetch_optional(&state.db_pool)
+    .await
+    .map_err(|e| format!("Failed to lookup user: {}", e))? {
+        Some(id) => id,
+        None => {
+            return Ok(json_response(
+                401,
+                &ApiResponse::<()> {
+                    success: false,
+                    data: None,
+                    error: Some("User not registered".to_string()),
+                },
+            )?)
+        }
+    };
+
     match (method, path) {
         // Record generic feedback
-        ("POST", "/v1/feedback") => {
+        ("POST", "/feedback") => {
             let body = event.body();
             let body_str = std::str::from_utf8(body.as_ref()).unwrap_or("{}");
             let request: RecordFeedbackRequest = serde_json::from_str(body_str)
@@ -214,7 +237,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Get user's feedback stats
-        ("GET", "/v1/feedback/stats") => {
+        ("GET", "/feedback/stats") => {
             let stats: Option<(i32, i32, f64, i32, i32, f64, i32, i32, f64)> = sqlx::query_as(
                 r#"
                 SELECT
@@ -274,7 +297,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Rate a specific query response
-        _ if path.starts_with("/v1/queries/") && path.ends_with("/feedback") => {
+        _ if path.starts_with("/queries/") && path.ends_with("/feedback") => {
             if method != "POST" {
                 return Ok(json_response(
                     405,
@@ -287,7 +310,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
             }
 
             let query_id = path
-                .trim_start_matches("/v1/queries/")
+                .trim_start_matches("/queries/")
                 .trim_end_matches("/feedback");
 
             let query_uuid = Uuid::parse_str(query_id)
@@ -356,7 +379,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Get recent feedback history
-        ("GET", "/v1/feedback/history") => {
+        ("GET", "/feedback/history") => {
             let params = event.query_string_parameters();
             let limit: i32 = params
                 .first("limit")

@@ -1,15 +1,15 @@
 //! Tag Management Lambda - Handles tags and taxonomy operations.
 //!
 //! Endpoints:
-//! - POST /v1/tags - Create a tag
-//! - GET /v1/tags - List/search tags
-//! - GET /v1/tags/{id} - Get tag details
-//! - PUT /v1/tags/{id} - Update tag
-//! - DELETE /v1/tags/{id} - Delete tag
-//! - POST /v1/facts/{id}/tags - Apply tags to a fact
-//! - GET /v1/facts/{id}/tags - Get fact's tags
-//! - DELETE /v1/facts/{id}/tags/{tagId} - Remove tag from fact
-//! - GET /v1/tags/{id}/facts - Get facts with a specific tag
+//! - POST /tags - Create a tag
+//! - GET /tags - List/search tags
+//! - GET /tags/{id} - Get tag details
+//! - PUT /tags/{id} - Update tag
+//! - DELETE /tags/{id} - Delete tag
+//! - POST /facts/{id}/tags - Apply tags to a fact
+//! - GET /facts/{id}/tags - Get fact's tags
+//! - DELETE /facts/{id}/tags/{tagId} - Remove tag from fact
+//! - GET /tags/{id}/facts - Get facts with a specific tag
 
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use serde::{Deserialize, Serialize};
@@ -168,10 +168,14 @@ fn extract_user_id(event: &Request) -> Result<Uuid, Error> {
 }
 
 async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>, Error> {
-    let path = event.uri().path();
+    let raw_path = event.uri().path();
+    // Strip /api stage prefix if present (API Gateway REST API includes stage in path)
+    let path = raw_path.strip_prefix("/api").unwrap_or(raw_path);
     let method = event.method().as_str();
 
-    let user_id = match extract_user_id(&event) {
+    info!("Received request: method={}, path={} (raw: {})", method, path, raw_path);
+
+    let cognito_sub = match extract_user_id(&event) {
         Ok(id) => id,
         Err(e) => {
             return Ok(json_response(
@@ -180,6 +184,27 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                     success: false,
                     data: None,
                     error: Some(format!("Authentication required: {}", e)),
+                },
+            )?);
+        }
+    };
+
+    // Look up database user_id from Cognito sub
+    let user_id: Uuid = match sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE cognito_sub = $1::text"
+    )
+    .bind(cognito_sub)
+    .fetch_optional(&state.db_pool)
+    .await
+    .map_err(|e| format!("Failed to lookup user: {}", e))? {
+        Some(id) => id,
+        None => {
+            return Ok(json_response(
+                401,
+                &ApiResponse::<()> {
+                    success: false,
+                    data: None,
+                    error: Some("User not registered".to_string()),
                 },
             )?);
         }
@@ -196,7 +221,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
 
     match (method, path) {
         // Create tag
-        ("POST", "/v1/tags") => {
+        ("POST", "/tags") => {
             let body = event.body();
             let request: CreateTagRequest = serde_json::from_slice(body)
                 .map_err(|e| format!("Invalid request body: {}", e))?;
@@ -261,7 +286,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // List/search tags
-        ("GET", "/v1/tags") => {
+        ("GET", "/tags") => {
             let params = event.query_string_parameters();
             let query = params.first("q");
             let prefix = params.first("prefix");
@@ -383,7 +408,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Tag statistics (tree view)
-        ("GET", "/v1/tags/stats") => {
+        ("GET", "/tags/stats") => {
             let params = event.query_string_parameters();
             let root_path = params.first("root").unwrap_or("");
 
@@ -430,7 +455,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Tag suggestions for a specific fact
-        ("POST", "/v1/tags/suggestions") => {
+        ("POST", "/tags/suggestions") => {
             #[derive(Deserialize)]
             struct SuggestRequest {
                 fact_id: Option<String>,
@@ -549,9 +574,9 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Fact tagging routes
-        _ if path.starts_with("/v1/facts/") && path.contains("/tags") => {
+        _ if path.starts_with("/facts/") && path.contains("/tags") => {
             let path_parts: Vec<&str> = path
-                .trim_start_matches("/v1/facts/")
+                .trim_start_matches("/facts/")
                 .split('/')
                 .collect();
 
@@ -712,13 +737,13 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Tag-specific routes
-        _ if path.starts_with("/v1/tags/") => {
+        _ if path.starts_with("/tags/") => {
             let path_parts: Vec<&str> = path
-                .trim_start_matches("/v1/tags/")
+                .trim_start_matches("/tags/")
                 .split('/')
                 .collect();
 
-            // Handle /v1/tags/stats separately (already handled above)
+            // Handle /tags/stats separately (already handled above)
             if path_parts[0] == "stats" {
                 return Ok(json_response(
                     404,

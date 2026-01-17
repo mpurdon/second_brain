@@ -1,10 +1,10 @@
 //! Relationship Management Lambda - Handles user relationships and access tiers.
 //!
 //! Endpoints:
-//! - POST /v1/relationships - Create a relationship
-//! - GET /v1/relationships - List user's relationships
-//! - PUT /v1/relationships/{id} - Update access tier
-//! - DELETE /v1/relationships/{id} - Remove relationship
+//! - POST /relationships - Create a relationship
+//! - GET /relationships - List user's relationships
+//! - PUT /relationships/{id} - Update access tier
+//! - DELETE /relationships/{id} - Remove relationship
 
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use serde::{Deserialize, Serialize};
@@ -133,10 +133,12 @@ fn extract_user_id(event: &Request) -> Result<Uuid, Error> {
 }
 
 async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>, Error> {
-    let path = event.uri().path();
+    let raw_path = event.uri().path();
+    // Strip /api stage prefix if present (API Gateway REST API includes stage in path)
+    let path = raw_path.strip_prefix("/api").unwrap_or(raw_path);
     let method = event.method().as_str();
 
-    let user_id = match extract_user_id(&event) {
+    let cognito_sub = match extract_user_id(&event) {
         Ok(id) => id,
         Err(e) => {
             return Ok(json_response(
@@ -150,9 +152,30 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
     };
 
+    // Look up database user_id from Cognito sub
+    let user_id: Uuid = match sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE cognito_sub = $1::text"
+    )
+    .bind(cognito_sub)
+    .fetch_optional(&state.db_pool)
+    .await
+    .map_err(|e| format!("Failed to lookup user: {}", e))? {
+        Some(id) => id,
+        None => {
+            return Ok(json_response(
+                401,
+                &ApiResponse::<()> {
+                    success: false,
+                    data: None,
+                    error: Some("User not registered".to_string()),
+                },
+            )?);
+        }
+    };
+
     match (method, path) {
         // Create relationship
-        ("POST", "/v1/relationships") => {
+        ("POST", "/relationships") => {
             let body = event.body();
             let request: CreateRelationshipRequest = serde_json::from_slice(body)
                 .map_err(|e| format!("Invalid request body: {}", e))?;
@@ -281,7 +304,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // List relationships
-        ("GET", "/v1/relationships") => {
+        ("GET", "/relationships") => {
             let relationships: Vec<RelationshipResponse> = sqlx::query_as::<_, (Uuid, Uuid, Uuid, String, i16, chrono::DateTime<chrono::Utc>, Option<String>, Option<String>)>(
                 r#"
                 SELECT r.id, r.source_user_id, r.target_user_id, r.relationship_type,
@@ -322,9 +345,9 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Update or delete specific relationship
-        _ if path.starts_with("/v1/relationships/") => {
+        _ if path.starts_with("/relationships/") => {
             let relationship_id = path
-                .trim_start_matches("/v1/relationships/")
+                .trim_start_matches("/relationships/")
                 .split('/')
                 .next()
                 .ok_or("Missing relationship ID")?;

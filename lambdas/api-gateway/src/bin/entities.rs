@@ -1,14 +1,14 @@
 //! Entity Management Lambda - CRUD operations for entities.
 //!
 //! Endpoints:
-//! - POST /v1/entities - Create entity
-//! - GET /v1/entities - Search/list entities
-//! - GET /v1/entities/{id} - Get entity details with timeline
-//! - PUT /v1/entities/{id} - Update entity
-//! - DELETE /v1/entities/{id} - Delete entity
-//! - POST /v1/entities/{id}/relationships - Create entity relationship
-//! - GET /v1/entities/{id}/relationships - List entity relationships
-//! - GET /v1/entities/{id}/facts - Get facts about entity (timeline)
+//! - POST /entities - Create entity
+//! - GET /entities - Search/list entities
+//! - GET /entities/{id} - Get entity details with timeline
+//! - PUT /entities/{id} - Update entity
+//! - DELETE /entities/{id} - Delete entity
+//! - POST /entities/{id}/relationships - Create entity relationship
+//! - GET /entities/{id}/relationships - List entity relationships
+//! - GET /entities/{id}/facts - Get facts about entity (timeline)
 
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use serde::{Deserialize, Serialize};
@@ -193,10 +193,12 @@ fn extract_user_id(event: &Request) -> Result<Uuid, Error> {
 }
 
 async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>, Error> {
-    let path = event.uri().path();
+    let raw_path = event.uri().path();
+    // Strip /api stage prefix if present (API Gateway REST API includes stage in path)
+    let path = raw_path.strip_prefix("/api").unwrap_or(raw_path);
     let method = event.method().as_str();
 
-    let user_id = match extract_user_id(&event) {
+    let cognito_sub = match extract_user_id(&event) {
         Ok(id) => id,
         Err(e) => {
             return Ok(json_response(
@@ -210,9 +212,30 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
     };
 
+    // Look up database user_id from Cognito sub
+    let user_id: Uuid = match sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE cognito_sub = $1::text"
+    )
+    .bind(cognito_sub)
+    .fetch_optional(&state.db_pool)
+    .await
+    .map_err(|e| format!("Failed to lookup user: {}", e))? {
+        Some(id) => id,
+        None => {
+            return Ok(json_response(
+                401,
+                &ApiResponse::<()> {
+                    success: false,
+                    data: None,
+                    error: Some("User not registered. Please use the main app to register first.".to_string()),
+                },
+            )?);
+        }
+    };
+
     match (method, path) {
         // Create entity
-        ("POST", "/v1/entities") => {
+        ("POST", "/entities") => {
             let body = event.body();
             let request: CreateEntityRequest = serde_json::from_slice(body)
                 .map_err(|e| format!("Invalid request body: {}", e))?;
@@ -273,7 +296,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Search/list entities
-        ("GET", "/v1/entities") => {
+        ("GET", "/entities") => {
             let params = event.query_string_parameters();
             let query = params.first("q");
             let entity_type = params.first("type");
@@ -391,8 +414,8 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Entity-specific routes
-        _ if path.starts_with("/v1/entities/") => {
-            let path_parts: Vec<&str> = path.trim_start_matches("/v1/entities/").split('/').collect();
+        _ if path.starts_with("/entities/") => {
+            let path_parts: Vec<&str> = path.trim_start_matches("/entities/").split('/').collect();
             let entity_id = Uuid::parse_str(path_parts[0])
                 .map_err(|_| "Invalid entity ID")?;
 

@@ -1,11 +1,11 @@
 //! Location & Geographic Lambda - Handles location and proximity queries.
 //!
 //! Endpoints:
-//! - POST /v1/locations/geocode - Geocode an address
-//! - GET /v1/locations/nearby - Find entities near a point
-//! - POST /v1/entities/{id}/locations - Add location to entity
-//! - GET /v1/entities/{id}/locations - Get entity locations
-//! - GET /v1/facts/timeline - Get facts with temporal filtering
+//! - POST /locations/geocode - Geocode an address
+//! - GET /locations/nearby - Find entities near a point
+//! - POST /entities/{id}/locations - Add location to entity
+//! - GET /entities/{id}/locations - Get entity locations
+//! - GET /facts/timeline - Get facts with temporal filtering
 
 use lambda_http::{run, service_fn, Body, Error, Request, RequestExt, Response};
 use serde::{Deserialize, Serialize};
@@ -160,10 +160,12 @@ fn format_distance(meters: f64) -> String {
 }
 
 async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>, Error> {
-    let path = event.uri().path();
+    let raw_path = event.uri().path();
+    // Strip /api stage prefix if present (API Gateway REST API includes stage in path)
+    let path = raw_path.strip_prefix("/api").unwrap_or(raw_path);
     let method = event.method().as_str();
 
-    let user_id = match extract_user_id(&event) {
+    let cognito_sub = match extract_user_id(&event) {
         Ok(id) => id,
         Err(e) => {
             return Ok(json_response(
@@ -172,6 +174,27 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                     success: false,
                     data: None,
                     error: Some(format!("Authentication required: {}", e)),
+                },
+            )?);
+        }
+    };
+
+    // Look up database user_id from Cognito sub
+    let user_id: Uuid = match sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE cognito_sub = $1::text"
+    )
+    .bind(cognito_sub)
+    .fetch_optional(&state.db_pool)
+    .await
+    .map_err(|e| format!("Failed to lookup user: {}", e))? {
+        Some(id) => id,
+        None => {
+            return Ok(json_response(
+                401,
+                &ApiResponse::<()> {
+                    success: false,
+                    data: None,
+                    error: Some("User not registered".to_string()),
                 },
             )?);
         }
@@ -188,17 +211,23 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
 
     match (method, path) {
         // Nearby search
-        ("GET", "/v1/locations/nearby") => {
+        ("GET", "/locations/nearby") => {
             let params = event.query_string_parameters();
 
             let lat: f64 = params.first("lat")
                 .and_then(|l| l.parse().ok())
                 .ok_or("lat parameter required")?;
+            // Support both 'lon' and 'lng' parameter names
             let lon: f64 = params.first("lon")
+                .or_else(|| params.first("lng"))
                 .and_then(|l| l.parse().ok())
-                .ok_or("lon parameter required")?;
+                .ok_or("lon or lng parameter required")?;
+            // Support radius in meters or radius_km in kilometers
             let radius: f64 = params.first("radius")
                 .and_then(|r| r.parse().ok())
+                .or_else(|| params.first("radius_km")
+                    .and_then(|r| r.parse::<f64>().ok())
+                    .map(|km| km * 1000.0))
                 .unwrap_or(1000.0);
             let entity_type = params.first("type");
             let limit: i64 = params.first("limit")
@@ -319,7 +348,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Calculate distance between two points
-        ("GET", "/v1/locations/distance") => {
+        ("GET", "/locations/distance") => {
             let params = event.query_string_parameters();
 
             let from_lat: f64 = params.first("from_lat")
@@ -367,7 +396,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Temporal timeline query
-        ("GET", "/v1/facts/timeline") => {
+        ("GET", "/facts/timeline") => {
             let params = event.query_string_parameters();
 
             // Parse optional date filters
@@ -531,9 +560,9 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
         }
 
         // Entity location routes
-        _ if path.starts_with("/v1/entities/") && path.contains("/locations") => {
+        _ if path.starts_with("/entities/") && path.contains("/locations") => {
             let path_parts: Vec<&str> = path
-                .trim_start_matches("/v1/entities/")
+                .trim_start_matches("/entities/")
                 .split('/')
                 .collect();
 
