@@ -2,12 +2,12 @@
 
 from .config import Settings, get_settings
 from .database import (
-    DatabasePool,
     get_connection,
     execute_query,
     execute_one,
     execute_scalar,
     execute_command,
+    run_async,
 )
 from .models import (
     Fact,
@@ -24,12 +24,12 @@ __all__ = [
     "Settings",
     "get_settings",
     # Database
-    "DatabasePool",
     "get_connection",
     "execute_query",
     "execute_one",
     "execute_scalar",
     "execute_command",
+    "run_async",
     # Models
     "Fact",
     "FactCreate",

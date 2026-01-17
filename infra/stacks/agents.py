@@ -1,6 +1,7 @@
 """Agents Stack for Second Brain Python agents."""
 
 from aws_cdk import (
+    BundlingOptions,
     Duration,
     RemovalPolicy,
     Stack,
@@ -78,6 +79,17 @@ class AgentsStack(Stack):
             )
         )
 
+        # AWS Marketplace permissions (required for Claude models)
+        agent_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "aws-marketplace:ViewSubscriptions",
+                    "aws-marketplace:Subscribe",
+                ],
+                resources=["*"],
+            )
+        )
+
         # Location Service permissions
         agent_role.add_to_policy(
             iam.PolicyStatement(
@@ -102,7 +114,7 @@ class AgentsStack(Stack):
             retention=logs.RetentionDays.ONE_WEEK,
         )
 
-        # Agent Lambda function
+        # Agent Lambda function with bundled Python dependencies
         self.agent_function = lambda_.Function(
             self,
             "AgentFunction",
@@ -121,6 +133,15 @@ class AgentsStack(Stack):
                     ".venv",
                     "venv",
                 ],
+                bundling=BundlingOptions(
+                    image=lambda_.Runtime.PYTHON_3_12.bundling_image,
+                    command=[
+                        "bash", "-c",
+                        "pip install -r requirements.txt -t /asset-output "
+                        "--platform manylinux2014_x86_64 --only-binary=:all: && "
+                        "cp -au . /asset-output"
+                    ],
+                ),
             ),
             timeout=Duration.seconds(120),
             memory_size=1024,
@@ -135,7 +156,7 @@ class AgentsStack(Stack):
                 "DB_PORT": "5432",
                 "DB_NAME": "second_brain",
                 "DB_SECRET_ARN": database_secret.secret_arn,
-                "BEDROCK_MODEL_ID": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+                "BEDROCK_MODEL_ID": "us.anthropic.claude-3-haiku-20240307-v1:0",
                 "EMBEDDING_MODEL_ID": "amazon.titan-embed-text-v2:0",
                 "LOCATION_PLACE_INDEX": self.place_index.index_name,
                 "LOG_LEVEL": "INFO",

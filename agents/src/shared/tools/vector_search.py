@@ -1,6 +1,5 @@
 """Vector search tools using pgvector and Amazon Bedrock."""
 
-import asyncio
 import json
 from typing import Any
 from uuid import UUID
@@ -9,7 +8,7 @@ import boto3
 from strands import tool
 
 from ..config import get_settings
-from ..database import execute_one, execute_query
+from ..database import execute_one, execute_query, run_async
 
 
 def _get_bedrock_client():
@@ -59,7 +58,7 @@ def semantic_search(
     query: str,
     family_ids: list[str] | None = None,
     limit: int = 10,
-    similarity_threshold: float = 0.7,
+    similarity_threshold: float = 0.15,
 ) -> dict[str, Any]:
     """Search for facts using semantic similarity with permission filtering.
 
@@ -78,91 +77,130 @@ def semantic_search(
         Dictionary with matching facts ranked by similarity.
     """
     async def _search() -> dict[str, Any]:
-        # Generate embedding for the query
-        embedding_result = generate_embedding(query)
-        if embedding_result["status"] != "success":
-            return {"status": "error", "message": "Failed to generate query embedding"}
-
-        query_embedding = embedding_result["embedding"]
-
-        # Build family IDs array for query
-        family_uuid_list = [UUID(fid) for fid in (family_ids or [])]
-
-        # Permission-aware search using pgvector cosine similarity
-        # This query handles:
-        # 1. User's own facts (always visible)
-        # 2. Facts from users the viewer has relationships with (filtered by visibility_tier)
-        # 3. Family-owned facts (visible to all family members)
-        search_query = """
-            WITH query_embedding AS (
-                SELECT $1::vector AS vec
+        try:
+            # First, look up the database user ID from cognito_sub
+            user = await execute_one(
+                """
+                SELECT id FROM users WHERE cognito_sub = $1::varchar
+                """,
+                user_id,
             )
-            SELECT
-                f.id,
-                f.content,
-                f.importance,
-                f.visibility_tier,
-                f.recorded_at,
-                f.owner_type,
-                f.owner_id,
-                e.name as entity_name,
-                1 - (fe.embedding <=> qe.vec) as similarity
-            FROM facts f
-            JOIN fact_embeddings fe ON fe.fact_id = f.id
-            CROSS JOIN query_embedding qe
-            LEFT JOIN entities e ON e.id = f.about_entity_id
-            LEFT JOIN user_access_cache uac
-                ON f.owner_type = 'user'
-                AND f.owner_id = uac.target_user_id
-                AND uac.viewer_user_id = $2
-            WHERE (
-                -- User's own facts
-                (f.owner_type = 'user' AND f.owner_id = $2)
-                -- Facts from related users (with permission check)
-                OR (f.owner_type = 'user' AND uac.access_tier IS NOT NULL AND uac.access_tier <= f.visibility_tier)
-                -- Family-owned facts (if user is in that family)
-                OR (f.owner_type = 'family' AND f.owner_id = ANY($3::uuid[]))
+
+            if not user:
+                return {
+                    "status": "success",
+                    "query": query,
+                    "count": 0,
+                    "results": [],
+                    "note": "User not found in database",
+                }
+
+            db_user_id = user["id"]
+
+            # Generate embedding for the query
+            embedding_result = generate_embedding(query)
+            if embedding_result["status"] != "success":
+                return {"status": "error", "message": "Failed to generate query embedding"}
+
+            query_embedding = embedding_result["embedding"]
+
+            # Build family IDs array for query
+            family_uuid_list = [UUID(fid) for fid in (family_ids or [])]
+
+            # Permission-aware search using pgvector cosine similarity
+            # This query handles:
+            # 1. User's own facts (always visible)
+            # 2. Facts from users the viewer has relationships with (filtered by visibility_tier)
+            # 3. Family-owned facts (visible to all family members)
+            search_query = """
+                WITH query_embedding AS (
+                    SELECT $1::vector AS vec
+                )
+                SELECT
+                    f.id,
+                    f.content,
+                    f.importance,
+                    f.visibility_tier,
+                    f.recorded_at,
+                    f.owner_type,
+                    f.owner_id,
+                    e.name as entity_name,
+                    1 - (fe.embedding <=> qe.vec) as similarity
+                FROM facts f
+                JOIN fact_embeddings fe ON fe.fact_id = f.id
+                CROSS JOIN query_embedding qe
+                LEFT JOIN entities e ON e.id = f.about_entity_id
+                LEFT JOIN user_access_cache uac
+                    ON f.owner_type = 'user'
+                    AND f.owner_id = uac.target_user_id
+                    AND uac.viewer_user_id = $2
+                WHERE (
+                    -- User's own facts
+                    (f.owner_type = 'user' AND f.owner_id = $2)
+                    -- Facts from related users (with permission check)
+                    OR (f.owner_type = 'user' AND uac.access_tier IS NOT NULL AND uac.access_tier <= f.visibility_tier)
+                    -- Family-owned facts (if user is in that family)
+                    OR (f.owner_type = 'family' AND f.owner_id = ANY($3::uuid[]))
+                )
+                AND (f.valid_to IS NULL OR f.valid_to > CURRENT_DATE)
+                AND 1 - (fe.embedding <=> qe.vec) >= $4
+                ORDER BY similarity DESC
+                LIMIT $5
+            """
+
+            # Convert embedding list to PostgreSQL vector format
+            embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+
+            results = await execute_query(
+                search_query,
+                embedding_str,
+                db_user_id,
+                family_uuid_list,
+                similarity_threshold,
+                limit,
             )
-            AND (f.valid_to IS NULL OR f.valid_to > CURRENT_DATE)
-            AND 1 - (fe.embedding <=> qe.vec) >= $4
-            ORDER BY similarity DESC
-            LIMIT $5
-        """
 
-        # Convert embedding list to PostgreSQL vector format
-        embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+            facts = [
+                {
+                    "id": str(row["id"]),
+                    "content": row["content"],
+                    "importance": row["importance"],
+                    "visibility_tier": row["visibility_tier"],
+                    "similarity": float(row["similarity"]),
+                    "recorded_at": row["recorded_at"].isoformat(),
+                    "entity_name": row["entity_name"],
+                    "owner_type": row["owner_type"],
+                }
+                for row in results
+            ]
 
-        results = await execute_query(
-            search_query,
-            embedding_str,
-            UUID(user_id),
-            family_uuid_list,
-            similarity_threshold,
-            limit,
-        )
-
-        facts = [
-            {
-                "id": str(row["id"]),
-                "content": row["content"],
-                "importance": row["importance"],
-                "visibility_tier": row["visibility_tier"],
-                "similarity": float(row["similarity"]),
-                "recorded_at": row["recorded_at"].isoformat(),
-                "entity_name": row["entity_name"],
-                "owner_type": row["owner_type"],
+            return {
+                "status": "success",
+                "query": query,
+                "count": len(facts),
+                "results": facts,
             }
-            for row in results
-        ]
+        except Exception as e:
+            import traceback
+            return {
+                "status": "error",
+                "message": f"Exception in semantic_search: {str(e)}",
+                "traceback": traceback.format_exc(),
+            }
 
-        return {
-            "status": "success",
-            "query": query,
-            "count": len(facts),
-            "results": facts,
+    try:
+        result = run_async(_search())
+        print(f"semantic_search result: {result}")
+        return result
+    except Exception as e:
+        import traceback
+        error_result = {
+            "status": "error",
+            "message": f"Exception running semantic_search: {str(e)}",
+            "traceback": traceback.format_exc(),
         }
-
-    return asyncio.get_event_loop().run_until_complete(_search())
+        print(f"semantic_search error: {error_result}")
+        return error_result
 
 
 @tool
@@ -181,37 +219,57 @@ def store_fact_embedding(fact_id: str, content: str) -> dict[str, Any]:
         Dictionary with status and embedding info.
     """
     async def _store() -> dict[str, Any]:
-        # Generate embedding
-        embedding_result = generate_embedding(content)
-        if embedding_result["status"] != "success":
-            return {"status": "error", "message": "Failed to generate embedding"}
+        try:
+            # Generate embedding
+            embedding_result = generate_embedding(content)
+            if embedding_result["status"] != "success":
+                return {"status": "error", "message": "Failed to generate embedding"}
 
-        embedding = embedding_result["embedding"]
-        settings = get_settings()
+            embedding = embedding_result["embedding"]
+            settings = get_settings()
 
-        # Store embedding
-        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+            # Store embedding
+            embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
-        await execute_one(
-            """
-            INSERT INTO fact_embeddings (fact_id, embedding, model_id)
-            VALUES ($1, $2::vector, $3)
-            ON CONFLICT (fact_id) DO UPDATE SET
-                embedding = EXCLUDED.embedding,
-                model_id = EXCLUDED.model_id,
-                created_at = NOW()
-            RETURNING fact_id
-            """,
-            UUID(fact_id),
-            embedding_str,
-            settings.embedding_model_id,
-        )
+            await execute_one(
+                """
+                INSERT INTO fact_embeddings (fact_id, embedding, model_id)
+                VALUES ($1, $2::vector, $3)
+                ON CONFLICT (fact_id) DO UPDATE SET
+                    embedding = EXCLUDED.embedding,
+                    model_id = EXCLUDED.model_id,
+                    created_at = NOW()
+                RETURNING fact_id
+                """,
+                UUID(fact_id),
+                embedding_str,
+                settings.embedding_model_id,
+            )
 
-        return {
-            "status": "success",
-            "fact_id": fact_id,
-            "dimensions": len(embedding),
-            "model_id": settings.embedding_model_id,
+            return {
+                "status": "success",
+                "fact_id": fact_id,
+                "dimensions": len(embedding),
+                "model_id": settings.embedding_model_id,
+            }
+        except Exception as e:
+            import traceback
+            return {
+                "status": "error",
+                "message": f"Exception in store_fact_embedding: {str(e)}",
+                "traceback": traceback.format_exc(),
+            }
+
+    try:
+        result = run_async(_store())
+        print(f"store_fact_embedding result: {result}")
+        return result
+    except Exception as e:
+        import traceback
+        error_result = {
+            "status": "error",
+            "message": f"Exception running store_fact_embedding: {str(e)}",
+            "traceback": traceback.format_exc(),
         }
-
-    return asyncio.get_event_loop().run_until_complete(_store())
+        print(f"store_fact_embedding error: {error_result}")
+        return error_result

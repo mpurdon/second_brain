@@ -29,7 +29,8 @@ def get_router_agent():
     """Get or create the Router Agent."""
     global _router_agent
     if _router_agent is None:
-        _router_agent = create_router_agent(model_id=DEFAULT_MODEL_ID)
+        # Use environment model ID instead of hardcoded Haiku
+        _router_agent = create_router_agent(model_id=DEFAULT_MODEL_ID, use_haiku=False)
     return _router_agent
 
 
@@ -100,7 +101,7 @@ def handle_request(event: dict[str, Any]) -> dict[str, Any]:
     elif intent == "query":
         agent = get_query_agent()
         result = agent.process(
-            message=message,
+            query=message,
             user_id=user_id,
             family_ids=family_ids,
         )
@@ -135,6 +136,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """AWS Lambda handler function.
 
     This can be used for direct Lambda invocation outside of AgentCore.
+    It detects whether the call is from API Gateway (wraps response)
+    or direct Lambda invocation (returns raw response).
 
     Args:
         event: Lambda event payload.
@@ -144,6 +147,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         Response dictionary.
     """
     try:
+        # Detect if this is an API Gateway request (has httpMethod or requestContext)
+        is_api_gateway = "httpMethod" in event or "requestContext" in event
+
         # Parse body if this came from API Gateway
         if "body" in event:
             if isinstance(event["body"], str):
@@ -155,25 +161,40 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
         result = handle_request(body)
 
-        return {
-            "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-            },
-            "body": json.dumps(result),
-        }
+        # If called from API Gateway, wrap in API Gateway format
+        if is_api_gateway:
+            return {
+                "statusCode": 200,
+                "headers": {
+                    "Content-Type": "application/json",
+                },
+                "body": json.dumps(result),
+            }
+
+        # If called directly (Lambda-to-Lambda), return raw response
+        return result
 
     except Exception as e:
-        return {
-            "statusCode": 500,
-            "headers": {
-                "Content-Type": "application/json",
-            },
-            "body": json.dumps({
-                "status": "error",
-                "message": str(e),
-            }),
+        error_response = {
+            "status": "error",
+            "response": str(e),
+            "user_id": event.get("user_id", ""),
+            "conversation_id": event.get("conversation_id"),
+            "metadata": {},
         }
+
+        # Check if API Gateway request
+        is_api_gateway = "httpMethod" in event or "requestContext" in event
+        if is_api_gateway:
+            return {
+                "statusCode": 500,
+                "headers": {
+                    "Content-Type": "application/json",
+                },
+                "body": json.dumps(error_response),
+            }
+
+        return error_response
 
 
 # AgentCore Runtime entry point

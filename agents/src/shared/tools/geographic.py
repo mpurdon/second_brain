@@ -1,6 +1,6 @@
 """Geographic tools using PostGIS and AWS Location Service."""
 
-import asyncio
+# asyncio import removed
 import json
 from typing import Any
 from uuid import UUID
@@ -9,7 +9,7 @@ import boto3
 from strands import tool
 
 from ..config import get_settings
-from ..database import execute_command, execute_one, execute_query
+from ..database import execute_command, execute_one, execute_query, run_async
 
 
 def _get_location_client():
@@ -165,7 +165,7 @@ def proximity_search(
             "results": entities,
         }
 
-    return asyncio.get_event_loop().run_until_complete(_search())
+    return run_async(_search())
 
 
 def _format_distance(meters: float) -> str:
@@ -269,7 +269,7 @@ def store_entity_location(
             "geocode_source": geocode_source,
         }
 
-    return asyncio.get_event_loop().run_until_complete(_store())
+    return run_async(_store())
 
 
 @tool
@@ -320,4 +320,4 @@ def calculate_distance(
             "display": _format_distance(meters),
         }
 
-    return asyncio.get_event_loop().run_until_complete(_calculate())
+    return run_async(_calculate())

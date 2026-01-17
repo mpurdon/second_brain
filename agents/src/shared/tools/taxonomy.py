@@ -1,12 +1,12 @@
 """Taxonomy tools for tag analysis and suggestions."""
 
-import asyncio
+# asyncio import removed
 from typing import Any
 from uuid import UUID
 
 from strands import tool
 
-from ..database import execute_query
+from ..database import execute_query, run_async
 
 
 @tool
@@ -89,7 +89,7 @@ def tag_cooccurrence_analysis(
             "insight": _generate_cooccurrence_insight(patterns),
         }
 
-    return asyncio.get_event_loop().run_until_complete(_analyze())
+    return run_async(_analyze())
 
 
 def _generate_cooccurrence_insight(patterns: list[dict]) -> str:
@@ -207,7 +207,7 @@ def untagged_facts_analysis(
             "untagged_facts": facts,
         }
 
-    return asyncio.get_event_loop().run_until_complete(_analyze())
+    return run_async(_analyze())
 
 
 @tool
@@ -307,7 +307,7 @@ def tag_hierarchy_analysis(
             "total_categories": len(categories),
         }
 
-    return asyncio.get_event_loop().run_until_complete(_analyze())
+    return run_async(_analyze())
 
 
 @tool
@@ -415,7 +415,7 @@ def suggest_tags_for_fact(
             "suggestions": suggestions[:10],
         }
 
-    return asyncio.get_event_loop().run_until_complete(_suggest())
+    return run_async(_suggest())
 
 
 @tool
@@ -529,4 +529,4 @@ def propose_taxonomy_changes(
             "total_proposals": len(proposals),
         }
 
-    return asyncio.get_event_loop().run_until_complete(_propose())
+    return run_async(_propose())

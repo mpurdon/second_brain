@@ -1,11 +1,31 @@
 """Configuration management for Second Brain agents."""
 
+import json
 import os
 from functools import lru_cache
 from typing import Literal
 
+import boto3
 from pydantic import Field
 from pydantic_settings import BaseSettings
+
+
+def _get_db_credentials_from_secret() -> dict[str, str]:
+    """Fetch database credentials from AWS Secrets Manager."""
+    secret_arn = os.environ.get("DB_SECRET_ARN")
+    if not secret_arn:
+        return {}
+
+    try:
+        client = boto3.client("secretsmanager")
+        response = client.get_secret_value(SecretId=secret_arn)
+        secret = json.loads(response["SecretString"])
+        return {
+            "DB_USER": secret.get("username", ""),
+            "DB_PASSWORD": secret.get("password", ""),
+        }
+    except Exception:
+        return {}
 
 
 # Model IDs for different capability levels
@@ -103,5 +123,16 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance."""
+    """Get cached settings instance.
+
+    Fetches database credentials from Secrets Manager if DB_SECRET_ARN is set.
+    """
+    # Fetch credentials from Secrets Manager if available
+    db_creds = _get_db_credentials_from_secret()
+
+    # Set environment variables so Settings can pick them up
+    for key, value in db_creds.items():
+        if value and key not in os.environ:
+            os.environ[key] = value
+
     return Settings()

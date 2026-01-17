@@ -2,51 +2,46 @@
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Coroutine, TypeVar
 
 import asyncpg
 
 from .config import get_settings
 
+T = TypeVar("T")
 
-class DatabasePool:
-    """Async PostgreSQL connection pool manager."""
 
-    _pool: asyncpg.Pool | None = None
-    _lock: asyncio.Lock = asyncio.Lock()
+def run_async(coro: Coroutine[Any, Any, T]) -> T:
+    """Run an async coroutine from sync code, handling Lambda environment.
 
-    @classmethod
-    async def get_pool(cls) -> asyncpg.Pool:
-        """Get or create the connection pool."""
-        if cls._pool is None:
-            async with cls._lock:
-                if cls._pool is None:
-                    settings = get_settings()
-                    cls._pool = await asyncpg.create_pool(
-                        host=settings.database_host,
-                        port=settings.database_port,
-                        database=settings.database_name,
-                        user=settings.database_user,
-                        password=settings.database_password,
-                        min_size=1,
-                        max_size=10,
-                    )
-        return cls._pool
-
-    @classmethod
-    async def close(cls) -> None:
-        """Close the connection pool."""
-        if cls._pool is not None:
-            await cls._pool.close()
-            cls._pool = None
+    This handles the case where we're called from sync code but may or may not
+    have an existing event loop. For Lambda, we always use asyncio.run() to
+    ensure a fresh event loop that properly manages connection state.
+    """
+    # Always use asyncio.run() which creates a fresh event loop
+    # This avoids issues with shared locks/pools across different loop contexts
+    return asyncio.run(coro)
 
 
 @asynccontextmanager
 async def get_connection() -> AsyncGenerator[asyncpg.Connection, None]:
-    """Get a database connection from the pool."""
-    pool = await DatabasePool.get_pool()
-    async with pool.acquire() as conn:
+    """Get a database connection.
+
+    Creates a fresh connection for each request. This is appropriate for Lambda
+    where connection pooling across invocations is not effective.
+    """
+    settings = get_settings()
+    conn = await asyncpg.connect(
+        host=settings.database_host,
+        port=settings.database_port,
+        database=settings.database_name,
+        user=settings.database_user,
+        password=settings.database_password,
+    )
+    try:
         yield conn
+    finally:
+        await conn.close()
 
 
 async def execute_query(

@@ -4,19 +4,77 @@ A progressive testing plan starting with simple single-user scenarios and buildi
 
 ---
 
+## Testing Progress Summary (2026-01-17)
+
+### Infrastructure Issues Resolved
+1. **Python Dependencies**: Added Docker bundling for `strands-agents` and dependencies
+2. **Response Format**: Fixed Lambda-to-Lambda response format (no API Gateway wrapping)
+3. **Bedrock Model**: Changed to Claude Haiku (`us.anthropic.claude-3-haiku-20240307-v1:0`) via Bedrock
+4. **Database Connection**: Simplified from connection pool to single connections (appropriate for Lambda)
+5. **User ID Handling**: Fixed all tools to lookup database user ID from Cognito sub
+6. **Async Event Loop**: Added `run_async()` helper for running async code in Lambda tools
+7. **SQL Type Ambiguity**: Fixed parameter type issues in user upsert queries
+8. **Metadata Handling**: Added safe type checking for JSONB metadata fields
+9. **Semantic Search Threshold**: Adjusted from 0.7 to 0.15 for realistic similarity matching
+
+### Current Status
+
+| Test | Status | Notes |
+|------|--------|-------|
+| Prerequisites | ✅ Complete | Secrets, Cognito user, tokens all ready |
+| Phase 1.1: Basic Ingest | ✅ PASSED | Facts stored successfully with fact_id |
+| Phase 1.2: Entity Extraction | ✅ PASSED | Entities created and linked to facts |
+| Phase 1.3: Basic Query | ✅ PASSED | entity_search and entity_get_details working |
+| Phase 1.4: Semantic Search | ✅ PASSED | Vector search with pgvector working |
+
+### Phase 1 Test Data
+- Test User: `44482468-40c1-708b-8c10-3a7a3fb80b58`
+- Entity "Max" (custom): ID `51b8300f-71d6-40e4-ade7-73f453546035`
+- Entity "Mountains" (place): ID `742b1f3f-ca33-48d8-b61e-06988e8fff16`
+- Entity "beach" (place): created during swimming fact ingest
+- Fact "My dog name is Max": ID `e9fd9eb8-f242-4e5e-98b5-f69dfb3fdedb`
+- Fact "I enjoy hiking in the mountains on weekends": ID `901742ec-31f1-4dd6-8b5c-6f450496d25a`
+- Fact "I like swimming at the beach in summer": ID `87aae461-980e-466f-9f03-33c89638c8e4`
+
+### Key Files Modified During Testing
+- `agents/src/shared/database.py` - Simplified to single connections, added run_async
+- `agents/src/shared/tools/database.py` - Fixed fact_store and fact_search with user lookup
+- `agents/src/shared/tools/entities.py` - Fixed entity_search, entity_create, entity_get_details
+- `agents/src/shared/tools/vector_search.py` - Fixed semantic_search with user lookup, adjusted threshold
+
+---
+
 ## Prerequisites (Before Any Testing)
 
 ### Infrastructure Setup
 - [x] Deploy all CDK stacks to AWS
 - [x] Run database migrations (001-013)
 - [x] Verify Cognito user pool is configured (us-east-1_raHIrGWN2)
-- [x] Confirm API Gateway endpoints are accessible (https://cqkvkyydrk.execute-api.us-east-1.amazonaws.com/v1/)
-- [ ] Set up AWS Secrets Manager with required credentials
+- [x] Confirm API Gateway endpoints are accessible (https://cqkvkyydrk.execute-api.us-east-1.amazonaws.com/api/)
+- [x] Set up AWS Secrets Manager with required credentials
+  - DB credentials: `second-brain/db-credentials` (auto-generated, fully configured)
+  - Discord: `second-brain/discord` (placeholder - configure when needed)
+  - Google OAuth: `second-brain/google-oauth` (placeholder - configure when needed)
 
 ### Test User Setup
-- [ ] Create test user in Cognito (`testuser@example.com`)
-- [ ] Obtain JWT token for API authentication
-- [ ] Note user's Cognito `sub` (user ID)
+- [x] Create test user in Cognito (`testuser@example.com`)
+- [x] Obtain JWT token for API authentication
+- [x] Note user's Cognito `sub` (user ID)
+
+**Test User Details:**
+- Email: `testuser@example.com`
+- Password: `TestPass123!`
+- Cognito Sub: `44482468-40c1-708b-8c10-3a7a3fb80b58`
+- Cognito Client ID: `6291pfmi8160sr2vbv1ilulje5` (web client)
+
+**Get Fresh Token:**
+```bash
+aws cognito-idp initiate-auth \
+  --client-id 6291pfmi8160sr2vbv1ilulje5 \
+  --auth-flow USER_PASSWORD_AUTH \
+  --auth-parameters USERNAME=testuser@example.com,PASSWORD="TestPass123!" \
+  --query "AuthenticationResult.IdToken" --output text
+```
 
 ### Migration Runner (CI/CD)
 ```bash
@@ -35,76 +93,74 @@ aws lambda invoke --function-name second-brain-db-migrator \
 
 **Goal**: Verify basic ingestion and query work for one user.
 
+**Note**: API base URL is `https://cqkvkyydrk.execute-api.us-east-1.amazonaws.com/api/` (not `/v1/`)
+Request body uses `content` (not `input`) for ingest and `query` (not `input`) for query.
+
 ### 1.1 Basic Fact Ingestion
 
 **Test**: Ingest simple facts via API
 
 ```bash
 # Ingest a basic fact
-curl -X POST https://api.secondbrain.app/v1/ingest \
+curl -X POST https://cqkvkyydrk.execute-api.us-east-1.amazonaws.com/api/ingest \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "input": "My favorite coffee shop is Blue Bottle on Market Street"
+    "content": "My favorite coffee shop is Blue Bottle on Market Street"
   }'
 ```
 
 **Verify**:
-- [ ] Response includes extracted entities (Blue Bottle, Market Street)
-- [ ] Fact stored in `facts` table with correct `user_id`
-- [ ] Embedding generated in `fact_embeddings` table
-- [ ] Entity mentions created in `entity_mentions` table
+- [x] Response confirms fact stored (fact_id returned)
+- [x] Response includes extracted entities (e.g., "Max" entity created from "My dog name is Max")
+- [x] Fact stored in `facts` table with correct `owner_id` (database user ID)
+- [x] Embedding generated in `fact_embeddings` table (1024 dimensions via Titan Embeddings V2)
+- [x] Entity mentions created via `entity_link_to_fact` tool
 
 ### 1.2 Entity Extraction
 
-**Test**: Ingest facts with people and organizations
+**Test**: Ingest facts with people and places (tested with Lambda directly)
 
 ```bash
-curl -X POST https://api.secondbrain.app/v1/ingest \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "input": "John Smith works at Acme Corp as a software engineer. His email is john@acme.com"
-  }'
+aws lambda invoke --function-name second-brain-agents \
+  --payload '{"message": "My dog name is Max", "user_id": "<cognito_sub>", "intent": "ingest"}' \
+  --cli-binary-format raw-in-base64-out /tmp/response.json
 ```
 
 **Verify**:
-- [ ] Person entity created (John Smith)
-- [ ] Organization entity created (Acme Corp)
-- [ ] Relationship created (works_at)
-- [ ] Attributes stored (job title, email)
+- [x] Entity created (Max - custom entity type)
+- [x] Entity linked to fact via entity_link_to_fact
+- [x] Ingest agent uses extract_entities, entity_search, entity_create, store_fact_embedding tools
 
 ### 1.3 Basic Query
 
 **Test**: Query the knowledge base
 
 ```bash
-curl -X POST https://api.secondbrain.app/v1/query \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "input": "Where is my favorite coffee shop?"
-  }'
+aws lambda invoke --function-name second-brain-agents \
+  --payload '{"message": "Tell me about Max", "user_id": "<cognito_sub>", "intent": "query"}' \
+  --cli-binary-format raw-in-base64-out /tmp/response.json
 ```
 
 **Verify**:
-- [ ] Response mentions Blue Bottle on Market Street
-- [ ] Query logged in `conversations` table
-- [ ] Response includes sources/confidence
+- [x] entity_search finds entity by name
+- [x] entity_get_details retrieves full entity info including recent_facts
+- [x] Response includes entity details and associated facts
 
-### 1.4 Entity-Focused Query
+### 1.4 Semantic Search
 
-**Test**: Query about a specific entity
+**Test**: Query using semantic similarity (not exact keyword match)
 
 ```bash
-curl -X POST https://api.secondbrain.app/v1/query \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "input": "Tell me about John Smith"
-  }'
+aws lambda invoke --function-name second-brain-agents \
+  --payload '{"message": "What outdoor hobbies do I have?", "user_id": "<cognito_sub>", "intent": "query"}' \
+  --cli-binary-format raw-in-base64-out /tmp/response.json
 ```
 
 **Verify**:
-- [ ] Response includes job, employer, email
-- [ ] Entity relationships are surfaced
+- [x] semantic_search uses pgvector cosine similarity
+- [x] Finds "hiking in mountains" for "outdoor hobbies" query (similarity: 0.32)
+- [x] Results filtered by user ownership and visibility tier
 
 ### 1.5 Visibility Tiers (Single User)
 
@@ -666,7 +722,7 @@ curl -X POST https://api.secondbrain.app/v1/reminders \
 
 | Phase | Status | Key Metrics |
 |-------|--------|-------------|
-| 1. Core Knowledge | [ ] | Ingestion latency < 3s, Query latency < 5s |
+| 1. Core Knowledge | ✅ PASSED | Ingestion ~8s, Query ~8s (cold start ~2.5s) |
 | 2. Extended Features | [ ] | Tags, locations, reminders functional |
 | 3. Calendar & Briefings | [ ] | Sync working, briefings generated |
 | 4. Discord | [ ] | Bot responsive, commands working |

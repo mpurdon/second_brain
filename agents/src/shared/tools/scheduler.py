@@ -1,13 +1,13 @@
 """Scheduler tools for briefings, reminders, and notifications."""
 
-import asyncio
+# asyncio import removed
 from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from strands import tool
 
-from ..database import execute_command, execute_one, execute_query
+from ..database import execute_command, execute_one, execute_query, run_async
 
 
 @tool
@@ -56,7 +56,7 @@ def get_today_events(
             ],
         }
 
-    return asyncio.get_event_loop().run_until_complete(_get_events())
+    return run_async(_get_events())
 
 
 @tool
@@ -124,7 +124,7 @@ def get_upcoming_birthdays(
             ],
         }
 
-    return asyncio.get_event_loop().run_until_complete(_get_birthdays())
+    return run_async(_get_birthdays())
 
 
 @tool
@@ -180,7 +180,7 @@ def get_active_reminders(
             ],
         }
 
-    return asyncio.get_event_loop().run_until_complete(_get_reminders())
+    return run_async(_get_reminders())
 
 
 @tool
@@ -270,7 +270,7 @@ def get_entity_context(
             "entities": contexts,
         }
 
-    return asyncio.get_event_loop().run_until_complete(_get_context())
+    return run_async(_get_context())
 
 
 @tool
@@ -324,7 +324,7 @@ def queue_notification(
             "scheduled_at": scheduled.isoformat(),
         }
 
-    return asyncio.get_event_loop().run_until_complete(_queue())
+    return run_async(_queue())
 
 
 @tool
@@ -376,7 +376,7 @@ def save_briefing(
             "generated_at": result["generated_at"].isoformat(),
         }
 
-    return asyncio.get_event_loop().run_until_complete(_save())
+    return run_async(_save())
 
 
 @tool
@@ -421,4 +421,4 @@ def mark_reminder_triggered(
             "next_trigger_at": result["next_trigger_at"].isoformat() if result["next_trigger_at"] else None,
         }
 
-    return asyncio.get_event_loop().run_until_complete(_mark())
+    return run_async(_mark())

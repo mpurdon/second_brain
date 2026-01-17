@@ -1,13 +1,13 @@
 """Calendar tools for event management and sync."""
 
-import asyncio
+# asyncio import removed
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from strands import tool
 
-from ..database import execute_command, execute_one, execute_query
+from ..database import execute_command, execute_one, execute_query, run_async
 
 
 @tool
@@ -99,7 +99,7 @@ def calendar_get_events(
             "events": events,
         }
 
-    return asyncio.get_event_loop().run_until_complete(_get_events())
+    return run_async(_get_events())
 
 
 @tool
@@ -214,7 +214,7 @@ def calendar_get_events_with_context(
             "events": enriched_events,
         }
 
-    return asyncio.get_event_loop().run_until_complete(_get_with_context())
+    return run_async(_get_with_context())
 
 
 @tool
@@ -309,4 +309,4 @@ def calendar_create_event(
             "created_at": result["created_at"].isoformat(),
         }
 
-    return asyncio.get_event_loop().run_until_complete(_create())
+    return run_async(_create())
