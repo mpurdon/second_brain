@@ -121,7 +121,11 @@ class IntegrationsStack(Stack):
         discord_lambda.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["lambda:InvokeFunction"],
-                resources=[agent_function_arn],
+                resources=[
+                    agent_function_arn,
+                    # Allow Lambda to invoke itself for async follow-up processing
+                    f"arn:aws:lambda:{self.region}:{self.account}:function:second-brain-discord-webhook",
+                ],
             )
         )
         discord_secret.grant_read(discord_lambda)
@@ -162,45 +166,11 @@ class IntegrationsStack(Stack):
             ),
         )
 
-        # Discord webhook endpoint
+        # Discord webhook endpoint - uses proxy integration for lambda_http compatibility
         webhook_resource = self.discord_api.root.add_resource("webhook")
         webhook_resource.add_method(
             "POST",
-            apigw.LambdaIntegration(
-                discord_lambda,
-                # Don't use proxy integration - we need raw body for signature verification
-                proxy=False,
-                request_templates={
-                    "application/json": """{
-                        "body": $input.json('$'),
-                        "headers": {
-                            "x-signature-ed25519": "$input.params('x-signature-ed25519')",
-                            "x-signature-timestamp": "$input.params('x-signature-timestamp')"
-                        }
-                    }"""
-                },
-                integration_responses=[
-                    apigw.IntegrationResponse(
-                        status_code="200",
-                        response_templates={
-                            "application/json": "$input.json('$')"
-                        },
-                    ),
-                    apigw.IntegrationResponse(
-                        status_code="401",
-                        selection_pattern=".*401.*",
-                    ),
-                    apigw.IntegrationResponse(
-                        status_code="400",
-                        selection_pattern=".*400.*",
-                    ),
-                ],
-            ),
-            method_responses=[
-                apigw.MethodResponse(status_code="200"),
-                apigw.MethodResponse(status_code="401"),
-                apigw.MethodResponse(status_code="400"),
-            ],
+            apigw.LambdaIntegration(discord_lambda, proxy=True),
         )
 
         # Export webhook URL

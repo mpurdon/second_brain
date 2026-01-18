@@ -5,7 +5,7 @@ from uuid import UUID
 
 from strands import tool
 
-from ..database import execute_command, execute_one, execute_query, run_async
+from ..database import execute_command, execute_one, execute_query, get_or_create_user, resolve_user_id, run_async
 
 
 @tool
@@ -13,17 +13,20 @@ def entity_search(
     user_id: str,
     query: str | None = None,
     entity_type: str | None = None,
+    relationship: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
     """Search for entities in the knowledge base.
 
     Use this tool to find people, organizations, places, projects, or events.
-    Supports fuzzy matching on names.
+    Supports fuzzy matching on names and filtering by relationship to user.
 
     Args:
         user_id: UUID of the user performing the search.
         query: Optional text to search for in entity names.
         entity_type: Optional filter by type (person, organization, place, project, event).
+        relationship: Optional filter by relationship to user (e.g., "granddaughter", "father", "friend").
+                     When querying "who is my granddaughter?", use relationship="granddaughter".
         limit: Maximum number of results to return (default 20).
 
     Returns:
@@ -31,23 +34,16 @@ def entity_search(
     """
     async def _search() -> dict[str, Any]:
         try:
-            # First, look up the database user ID from cognito_sub
-            user = await execute_one(
-                """
-                SELECT id FROM users WHERE cognito_sub = $1::varchar
-                """,
-                user_id,
-            )
+            # Resolve user from various external identities (cognito_sub, discord_id, etc.)
+            db_user_id, _ = await resolve_user_id(user_id)
 
-            if not user:
+            if not db_user_id:
                 return {
                     "status": "success",
                     "count": 0,
                     "entities": [],
                     "note": "User not found in database",
                 }
-
-            db_user_id = user["id"]
 
             conditions = []
             params: list[Any] = [db_user_id]
@@ -75,6 +71,12 @@ def entity_search(
             if entity_type:
                 conditions.append(f"e.entity_type = ${param_idx}::entity_type")
                 params.append(entity_type)
+                param_idx += 1
+
+            if relationship:
+                # Search for entities with this relationship in metadata
+                conditions.append(f"e.metadata->>'relationship_to_user' ILIKE ${param_idx}")
+                params.append(f"%{relationship}%")
                 param_idx += 1
 
             where_clause = " AND ".join(conditions) if conditions else "1=1"
@@ -173,22 +175,11 @@ def entity_create(
         import json
 
         try:
-            # First, look up or create the user by cognito_sub
-            user = await execute_one(
-                """
-                INSERT INTO users (cognito_sub, email, display_name)
-                VALUES ($1::varchar, $2, 'User')
-                ON CONFLICT (cognito_sub) DO UPDATE SET cognito_sub = users.cognito_sub
-                RETURNING id
-                """,
-                user_id,
-                f"{user_id}@placeholder.local",
-            )
-
-            if not user:
-                return {"status": "error", "message": "Failed to resolve user"}
-
-            db_user_id = user["id"]
+            # Resolve user from various external identities (cognito_sub, discord_id, etc.)
+            try:
+                db_user_id, _ = await get_or_create_user(user_id, "api")
+            except ValueError as e:
+                return {"status": "error", "message": str(e)}
 
             metadata_json = json.dumps(metadata or {})
             alias_list = aliases or []
@@ -265,21 +256,15 @@ def entity_get_details(
     """
     async def _get_details() -> dict[str, Any]:
         try:
-            # First, look up the database user ID from cognito_sub
-            user = await execute_one(
-                """
-                SELECT id FROM users WHERE cognito_sub = $1::varchar
-                """,
-                user_id,
-            )
+            # Resolve user from various external identities (cognito_sub, discord_id, etc.)
+            db_user_id, _ = await resolve_user_id(user_id)
 
-            if not user:
+            if not db_user_id:
                 return {
                     "status": "error",
                     "message": "User not found in database",
                 }
 
-            db_user_id = user["id"]
             family_uuid_list = [UUID(fid) for fid in (family_ids or [])]
 
             # Get entity details

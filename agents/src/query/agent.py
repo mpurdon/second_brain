@@ -11,6 +11,8 @@ from ..shared.tools import (
     entity_get_details,
     entity_search,
     fact_search,
+    fact_update,
+    fact_delete,
     proximity_search,
     semantic_search,
 )
@@ -241,6 +243,9 @@ class QueryAgent:
                 calculate_distance,
                 calendar_get_events,
                 calendar_get_events_with_context,
+                # Fact management tools
+                fact_update,
+                fact_delete,
                 # Response synthesis
                 synthesize_response,
                 suggest_follow_ups,
@@ -291,11 +296,15 @@ Context:
 
 User question: "{query}"
 
-Process this query by:
-1. Analyzing the query to determine the best search strategy
-2. Executing the appropriate searches using available tools
-3. Synthesizing the results into a helpful response
-4. Suggesting relevant follow-up questions
+IMPORTANT: Your primary job is to ANSWER the user's question directly. Follow these steps:
+
+1. Search the knowledge base using the appropriate tools (semantic_search, fact_search, entity_search, etc.)
+2. DIRECTLY ANSWER the user's question based on the search results
+3. If you found relevant information, tell them the answer clearly and concisely
+4. If no information is found, say "I don't have any information about that"
+
+DO NOT just suggest follow-up questions without first answering the question.
+DO NOT skip the search step - always search first before responding.
 
 Always respect the user's access permissions - only show information they have access to.
 """

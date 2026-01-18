@@ -1,5 +1,11 @@
-"""Ingestion Agent implementation using Strands SDK."""
+"""Ingestion Agent implementation using Strands SDK.
 
+Supports two modes:
+1. Graph mode (default): Uses parallel FunctionNodes for ~5x faster processing
+2. Legacy mode: Uses sequential LLM tool calls (slower but more flexible)
+"""
+
+import os
 from typing import Any
 
 from strands import Agent, tool
@@ -13,6 +19,7 @@ from ..shared.tools import (
     store_fact_embedding,
 )
 from .prompts import INGESTION_SYSTEM_PROMPT
+from .graph import GraphIngestionPipeline
 
 
 @tool
@@ -279,37 +286,68 @@ def confirm_ingestion(
 
 
 class IngestionAgent:
-    """Agent responsible for processing and storing new facts."""
+    """Agent responsible for processing and storing new facts.
+
+    Supports two modes controlled by INGESTION_MODE env var:
+    - "graph" (default): Fast parallel processing with FunctionNodes
+    - "legacy": Sequential LLM tool calls (slower, more flexible)
+    """
 
     def __init__(
         self,
         model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        use_graph: bool | None = None,
     ):
         """Initialize the Ingestion Agent.
 
         Args:
             model_id: Bedrock model ID to use for the agent.
+            use_graph: Force graph mode (True) or legacy mode (False).
+                      If None, uses INGESTION_MODE env var (default: graph).
         """
         self.model_id = model_id
-        self.agent = Agent(
-            model=model_id,
-            system_prompt=INGESTION_SYSTEM_PROMPT,
-            tools=[
-                # Extraction and classification tools
-                extract_entities,
-                classify_visibility,
-                assign_importance,
-                suggest_tags,
-                # Storage tools (from shared)
-                fact_store,
-                store_fact_embedding,
-                entity_search,
-                entity_create,
-                entity_link_to_fact,
-                # Confirmation
-                confirm_ingestion,
-            ],
-        )
+
+        # Determine mode from env var or parameter
+        if use_graph is None:
+            mode = os.environ.get("INGESTION_MODE", "graph").lower()
+            self.use_graph = mode == "graph"
+        else:
+            self.use_graph = use_graph
+
+        # Initialize graph pipeline (lazy, only if needed)
+        self._graph_pipeline = None
+
+        # Initialize legacy agent (lazy, only if needed)
+        self._legacy_agent = None
+
+    @property
+    def graph_pipeline(self) -> GraphIngestionPipeline:
+        """Get or create the graph pipeline."""
+        if self._graph_pipeline is None:
+            self._graph_pipeline = GraphIngestionPipeline()
+        return self._graph_pipeline
+
+    @property
+    def legacy_agent(self) -> Agent:
+        """Get or create the legacy LLM agent."""
+        if self._legacy_agent is None:
+            self._legacy_agent = Agent(
+                model=self.model_id,
+                system_prompt=INGESTION_SYSTEM_PROMPT,
+                tools=[
+                    extract_entities,
+                    classify_visibility,
+                    assign_importance,
+                    suggest_tags,
+                    fact_store,
+                    store_fact_embedding,
+                    entity_search,
+                    entity_create,
+                    entity_link_to_fact,
+                    confirm_ingestion,
+                ],
+            )
+        return self._legacy_agent
 
     def process(
         self,
@@ -334,7 +372,22 @@ class IngestionAgent:
         Returns:
             Dictionary with processing results.
         """
-        # Default owner_id to user_id if not specified
+        # Use graph pipeline for fast processing (default)
+        if self.use_graph:
+            result = self.graph_pipeline.process(
+                message=message,
+                user_id=user_id,
+                source=source_type if source_type != "voice" else "text",
+            )
+            return {
+                "response": result.get("response", "Done."),
+                "user_id": user_id,
+                "original_message": message,
+                "mode": "graph",
+                "execution_time_ms": result.get("execution_time_ms"),
+            }
+
+        # Legacy mode: use LLM agent with sequential tool calls
         actual_owner_id = owner_id or user_id
 
         context_parts = [
@@ -369,12 +422,13 @@ Process this message by:
 Use the available tools to complete each step.
 """
 
-        response = self.agent(prompt)
+        response = self.legacy_agent(prompt)
 
         return {
             "response": str(response),
             "user_id": user_id,
             "original_message": message,
+            "mode": "legacy",
         }
 
 

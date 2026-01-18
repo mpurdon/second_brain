@@ -31,6 +31,16 @@ A progressive testing plan starting with simple single-user scenarios and buildi
 | Phase 3.3: Calendar Queries | ✅ PASSED | Agent uses calendar_get_events tool |
 | Phase 3.4: Morning Briefing | ✅ PASSED | Routes to query agent with calendar access |
 | Phase 3.5: Briefing Dispatcher | ✅ PASSED | Finds users, triggers agent async |
+| Phase 4.1: Discord Bot Setup | ✅ PASSED | App created, webhook configured |
+| Phase 4.2: Discord Text Interaction | ✅ PASSED | /remember, /ask, /briefing working |
+
+### Phase 4 Infrastructure Setup (2026-01-18)
+- Discord Application ID: `1462249611572936879`
+- Discord Webhook URL: `https://d3d16m0y14.execute-api.us-east-1.amazonaws.com/prod/webhook`
+- Discord Secret: `second-brain/discord`
+- Slash Commands: `/remember`, `/ask`, `/briefing`
+- Deferred response pattern implemented for 3-second Discord timeout
+- Lambda self-invocation for async follow-up processing
 
 ### Phase 3 Infrastructure Setup
 - Google OAuth App: Project 112844731139
@@ -736,7 +746,7 @@ curl -X POST https://api.secondbrain.app/v1/reminders \
 | 1. Core Knowledge | ✅ PASSED | Ingestion ~8s, Query ~8s (cold start ~2.5s) |
 | 2. Extended Features | [ ] | Tags, locations, reminders functional |
 | 3. Calendar & Briefings | ✅ PASSED | OAuth, sync, queries, dispatcher all working |
-| 4. Discord | [ ] | Bot responsive, commands working |
+| 4. Discord | ✅ PASSED | Bot responsive, deferred responses ~14-18s |
 | 5. Multi-User | [ ] | Family sharing, visibility tiers correct |
 | 6. Alexa | [ ] | Voice recognition, multi-user on device |
 | 7. Full Integration | [ ] | Day-in-life scenario successful |

@@ -65,12 +65,46 @@ def handler(event, context):
     - {"action": "status"} - List applied and pending migrations
     - {"action": "migrate"} - Run all pending migrations (default)
     - {"action": "migrate", "version": "001"} - Run specific migration
+    - {"action": "execute", "sql": "..."} - Execute arbitrary SQL (admin use)
 
     CI/CD usage:
         aws lambda invoke --function-name second-brain-db-migrator \\
             --payload '{"action": "migrate"}' response.json
     """
     action = event.get("action", "migrate")
+
+    # Handle execute action separately (doesn't need migrations)
+    if action == "execute":
+        sql = event.get("sql", "")
+        if not sql:
+            return {"statusCode": 400, "error": "No SQL provided"}
+        try:
+            conn = get_connection()
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                if cur.description:  # SELECT query
+                    columns = [desc[0] for desc in cur.description]
+                    rows = cur.fetchall()
+                    # Convert non-serializable types
+                    result = []
+                    for row in rows:
+                        row_dict = {}
+                        for col, val in zip(columns, row):
+                            if hasattr(val, 'isoformat'):
+                                row_dict[col] = val.isoformat()
+                            else:
+                                row_dict[col] = str(val) if val is not None else None
+                        result.append(row_dict)
+                    conn.commit()
+                    conn.close()
+                    return {"statusCode": 200, "rows": result, "count": len(result)}
+                else:  # INSERT/UPDATE/DELETE
+                    affected = cur.rowcount
+                    conn.commit()
+                    conn.close()
+                    return {"statusCode": 200, "affected_rows": affected}
+        except Exception as e:
+            return {"statusCode": 500, "error": str(e)}
 
     # Load migrations from bundled files
     migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")

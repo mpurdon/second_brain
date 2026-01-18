@@ -11,6 +11,8 @@ from typing import Any
 from src.router import create_router_agent
 from src.ingestion import create_ingestion_agent
 from src.query import create_query_agent
+from src.shared.database import reset_knowledge_base, run_async
+from src.shared.tools.database import fact_update, fact_delete, fact_search
 
 
 # Model configuration
@@ -65,11 +67,42 @@ def handle_request(event: dict[str, Any]) -> dict[str, Any]:
                 "conversation_id": str,   # Conversation context ID
                 "intent": str,            # Pre-classified intent (optional)
                 "source": str,            # Source platform (discord, alexa, api)
+                "action": str,            # Special action (optional: reset_knowledge)
             }
 
     Returns:
         Response dictionary with agent output.
     """
+    # Handle special actions first
+    action = event.get("action")
+    if action == "reset_knowledge":
+        result = run_async(reset_knowledge_base())
+        return result
+    elif action == "search_facts":
+        # Search for facts - useful for finding facts to edit/delete
+        return fact_search(
+            user_id=event.get("user_id", ""),
+            query_text=event.get("query_text"),
+            limit=event.get("limit", 20),
+        )
+    elif action == "update_fact":
+        # Update a fact's content or metadata
+        return fact_update(
+            fact_id=event.get("fact_id", ""),
+            user_id=event.get("user_id", ""),
+            content=event.get("content"),
+            importance=event.get("importance"),
+            visibility_tier=event.get("visibility_tier"),
+            valid_from=event.get("valid_from"),
+            valid_to=event.get("valid_to"),
+        )
+    elif action == "delete_fact":
+        # Delete a fact
+        return fact_delete(
+            fact_id=event.get("fact_id", ""),
+            user_id=event.get("user_id", ""),
+        )
+
     # Extract request parameters
     message = event.get("message", "")
     user_id = event.get("user_id", "")

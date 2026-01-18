@@ -1,6 +1,6 @@
 """Strands SDK tools for Second Brain agents."""
 
-from .database import fact_store, fact_search
+from .database import fact_store, fact_search, fact_update, fact_delete
 from .vector_search import semantic_search, generate_embedding, store_fact_embedding
 from .entities import entity_search, entity_create, entity_get_details, entity_link_to_fact
 from .geographic import (
@@ -36,6 +36,8 @@ __all__ = [
     # Database tools
     "fact_store",
     "fact_search",
+    "fact_update",
+    "fact_delete",
     # Vector search tools
     "semantic_search",
     "generate_embedding",

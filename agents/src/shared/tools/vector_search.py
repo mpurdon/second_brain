@@ -8,7 +8,7 @@ import boto3
 from strands import tool
 
 from ..config import get_settings
-from ..database import execute_one, execute_query, run_async
+from ..database import execute_one, execute_query, resolve_user_id, run_async
 
 
 def _get_bedrock_client():
@@ -78,15 +78,10 @@ def semantic_search(
     """
     async def _search() -> dict[str, Any]:
         try:
-            # First, look up the database user ID from cognito_sub
-            user = await execute_one(
-                """
-                SELECT id FROM users WHERE cognito_sub = $1::varchar
-                """,
-                user_id,
-            )
+            # Resolve user from various external identities (cognito_sub, discord_id, etc.)
+            db_user_id, _ = await resolve_user_id(user_id)
 
-            if not user:
+            if not db_user_id:
                 return {
                     "status": "success",
                     "query": query,
@@ -94,8 +89,6 @@ def semantic_search(
                     "results": [],
                     "note": "User not found in database",
                 }
-
-            db_user_id = user["id"]
 
             # Generate embedding for the query
             embedding_result = generate_embedding(query)
