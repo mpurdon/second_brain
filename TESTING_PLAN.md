@@ -26,6 +26,7 @@ A progressive testing plan starting with simple single-user scenarios and buildi
 | Phase 1.2: Entity Extraction | ✅ PASSED | Entities created and linked to facts |
 | Phase 1.3: Basic Query | ✅ PASSED | entity_search and entity_get_details working |
 | Phase 1.4: Semantic Search | ✅ PASSED | Vector search with pgvector working |
+| Phase 1.5: Visibility Tiers | ✅ PASSED | Facts stored with correct tiers (1-4) |
 | Phase 3.1: Google Calendar OAuth | ✅ PASSED | Tokens stored in Secrets Manager |
 | Phase 3.2: Calendar Sync | ✅ PASSED | Syncs from Google Calendar API to DB |
 | Phase 3.3: Calendar Queries | ✅ PASSED | Agent uses calendar_get_events tool |
@@ -206,8 +207,12 @@ curl -X POST https://api.secondbrain.app/v1/ingest \
 ```
 
 **Verify**:
-- [ ] Facts stored with correct `visibility_tier`
-- [ ] Queries respect visibility filtering
+- [x] Facts stored with correct `visibility_tier` (tier 1 for PIN, tier 3 for reunion)
+- [x] Queries respect visibility filtering (tested - multi-user filtering is Phase 5.3)
+
+**Test Data (2026-01-18)**:
+- Tier 1 fact: "The user's bank account PIN is 9876" (ID: `76be149a-6b63-4c5d-a913-0565f8ada291`)
+- Tier 3 fact: "Family reunion is on July 4, 2026 at Grandma's house" (ID: `7611fd04-54a2-48b5-9a0d-b82952b60b9b`)
 
 ---
 
@@ -221,26 +226,36 @@ curl -X POST https://api.secondbrain.app/v1/ingest \
 
 ```bash
 # Create a tag
-curl -X POST https://api.secondbrain.app/v1/tags \
+curl -X POST https://cqkvkyydrk.execute-api.us-east-1.amazonaws.com/api/tags \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
-    "name": "work",
-    "path": "categories/work",
-    "description": "Work-related facts"
+    "name": "birthdays",
+    "path": "family/birthdays",
+    "description": "Birthday information for family members"
   }'
 
 # Get tag suggestions for a fact
-curl -X POST https://api.secondbrain.app/v1/tags/suggestions \
+curl -X POST https://cqkvkyydrk.execute-api.us-east-1.amazonaws.com/api/tags/suggestions \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
-    "fact_id": "<fact_id_from_earlier>"
+    "fact_id": "<fact_id>"
   }'
+
+# Apply tags to a fact
+curl -X POST https://cqkvkyydrk.execute-api.us-east-1.amazonaws.com/api/facts/<fact_id>/tags \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"tag_paths": ["family/birthdays", "people/family"]}'
 ```
 
 **Verify**:
-- [ ] Tag created in `tags` table
-- [ ] AI suggests relevant tags
-- [ ] Tags can be applied to facts
+- [x] Tag created in `tags` table (created family/birthdays, family/events, personal/finances, people/family, people/friends)
+- [x] AI suggests relevant tags (based on entity type - person entities get personal/family/work suggestions)
+- [x] Tags can be applied to facts (applied to Emma's birthday fact)
+
+**Test Data (2026-01-18)**:
+- User-created tags: `family/birthdays`, `family/events`, `personal/finances`, `people/family`, `people/friends`
+- Test fact with tags: Emma's birthday (`de39a83b-01d3-46ac-90aa-1a60c8c27bcb`)
+- System tags also exist: domain/*, entity_type/*, priority/*, temporal/*
 
 ### 2.2 Entity Locations & Geographic Queries
 
@@ -743,7 +758,7 @@ curl -X POST https://api.secondbrain.app/v1/reminders \
 
 | Phase | Status | Key Metrics |
 |-------|--------|-------------|
-| 1. Core Knowledge | ✅ PASSED | Ingestion ~8s, Query ~8s (cold start ~2.5s) |
+| 1. Core Knowledge | ✅ PASSED | Ingestion ~8s, Query ~8s, visibility tiers working |
 | 2. Extended Features | [ ] | Tags, locations, reminders functional |
 | 3. Calendar & Briefings | ✅ PASSED | OAuth, sync, queries, dispatcher all working |
 | 4. Discord | ✅ PASSED | Bot responsive, deferred responses ~14-18s |

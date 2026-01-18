@@ -232,8 +232,16 @@ def assign_importance(content: str) -> dict:
     return {"importance": 3, "reason": "default"}
 
 
-def suggest_tags(content: str) -> list[str]:
-    """Suggest tags based on content analysis."""
+def suggest_tags(content: str, milestone: dict | None = None) -> list[str]:
+    """Suggest tags based on content analysis and milestone detection.
+
+    Args:
+        content: The fact content to analyze.
+        milestone: Optional milestone dict from detect_milestone().
+
+    Returns:
+        List of tag paths to apply.
+    """
     content_lower = content.lower()
     tags = []
 
@@ -245,16 +253,57 @@ def suggest_tags(content: str) -> list[str]:
     if any(kw in content_lower for kw in ["hobby", "favorite", "like", "enjoy", "personal", "i am", "i'm"]):
         tags.append("domain/personal")
 
-    # Temporal tags
-    if any(kw in content_lower for kw in ["birthday", "anniversary"]):
-        tags.append("temporal/anniversary")
+    # Relationship-based tags (people/family vs people/friends)
+    family_relationships = [
+        "mother", "father", "mom", "dad", "sister", "brother", "aunt", "uncle",
+        "cousin", "nephew", "niece", "grandmother", "grandfather", "grandma",
+        "grandpa", "son", "daughter", "wife", "husband", "spouse", "parent",
+        "sibling", "in-law", "stepmother", "stepfather", "half-brother", "half-sister"
+    ]
+    if any(rel in content_lower for rel in family_relationships):
+        tags.append("people/family")
+
+    if any(kw in content_lower for kw in ["friend", "buddy", "pal", "acquaintance"]):
+        tags.append("people/friends")
+
+    # Milestone-based tags (from detect_milestone)
+    if milestone:
+        milestone_type = milestone.get("type")
+        if milestone_type == "birthday":
+            tags.append("family/birthdays")
+            tags.append("temporal/recurring")
+        elif milestone_type == "memorial":
+            tags.append("temporal/anniversary")
+        elif milestone_type == "anniversary":
+            tags.append("temporal/anniversary")
+            tags.append("temporal/recurring")
+
+    # Temporal tags (keyword-based fallback)
+    if any(kw in content_lower for kw in ["birthday", "born"]) and "family/birthdays" not in tags:
+        tags.append("family/birthdays")
+        tags.append("temporal/recurring")
+    if any(kw in content_lower for kw in ["anniversary", "married", "wedding"]):
+        if "temporal/anniversary" not in tags:
+            tags.append("temporal/anniversary")
     if any(kw in content_lower for kw in ["deadline", "due"]):
         tags.append("temporal/deadline")
+
+    # Financial tags
+    if any(kw in content_lower for kw in ["bank", "account", "pin", "password", "credit", "debit", "finance", "money", "salary"]):
+        tags.append("personal/finances")
 
     if not tags:
         tags.append("domain/personal")
 
-    return tags
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_tags = []
+    for tag in tags:
+        if tag not in seen:
+            seen.add(tag)
+            unique_tags.append(tag)
+
+    return unique_tags
 
 
 def extract_entities(content: str) -> list[dict]:
@@ -991,12 +1040,17 @@ async def run_ingestion_pipeline(
                 entity_map[name] = result["entity_id"]
 
     # Step 5: Store each fact (with entity links)
+    from ..shared.milestones import detect_milestone
+
     stored_facts = []
     for fact in facts_to_store:
         # Classify this specific fact
         visibility = classify_visibility(fact["content"])["tier"]
         importance = assign_importance(fact["content"])["importance"]
-        tags = suggest_tags(fact["content"])
+
+        # Detect milestone early so we can pass it to suggest_tags
+        milestone = detect_milestone(fact["content"], fact.get("type"))
+        tags = suggest_tags(fact["content"], milestone=milestone)
 
         # Get entity ID if fact is about an entity
         entity_id = None
@@ -1026,6 +1080,7 @@ async def run_ingestion_pipeline(
                 "importance": importance,
                 "tags": tags,
                 "entity_id": entity_id,
+                "milestone": milestone,  # Store for calendar event creation
             })
 
     if not stored_facts:
@@ -1062,12 +1117,13 @@ async def run_ingestion_pipeline(
             if reverse_result.get("status") == "success":
                 reverse_facts_created.append(reverse_result)
 
-    # Step 6.7: Detect and create annual milestone events (birthdays, anniversaries, etc.)
-    from ..shared.milestones import detect_milestone, create_annual_calendar_event
+    # Step 6.7: Create annual milestone events (birthdays, anniversaries, etc.)
+    # Note: Milestone detection already happened in Step 5 for tagging
+    from ..shared.milestones import create_annual_calendar_event
 
     milestone_events_created = []
     for fact in stored_facts:
-        milestone = detect_milestone(fact["content"], fact.get("type"))
+        milestone = fact.get("milestone")  # Use pre-detected milestone
         if milestone:
             try:
                 event_result = await create_annual_calendar_event(
