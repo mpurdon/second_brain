@@ -1062,6 +1062,25 @@ async def run_ingestion_pipeline(
             if reverse_result.get("status") == "success":
                 reverse_facts_created.append(reverse_result)
 
+    # Step 6.7: Detect and create annual milestone events (birthdays, anniversaries, etc.)
+    from ..shared.milestones import detect_milestone, create_annual_calendar_event
+
+    milestone_events_created = []
+    for fact in stored_facts:
+        milestone = detect_milestone(fact["content"], fact.get("type"))
+        if milestone:
+            try:
+                event_result = await create_annual_calendar_event(
+                    user_id=db_user_id,
+                    milestone=milestone,
+                    entity_id=fact.get("entity_id"),
+                    fact_id=fact.get("fact_id"),
+                )
+                if event_result.get("status") == "success":
+                    milestone_events_created.append(event_result)
+            except Exception:
+                pass  # Silently skip milestone event creation on error
+
     # Step 7: Build confirmation
     execution_time = int((time.time() - start_time) * 1000)
 
@@ -1083,6 +1102,11 @@ async def run_ingestion_pipeline(
     created_entities = [e["name"] for e in entities if e.get("relationship")]
     if created_entities:
         parts.append(f"Created entries for: {', '.join(created_entities)}.")
+
+    # Mention milestone calendar events if created
+    if milestone_events_created:
+        event_titles = [e.get("title", "event") for e in milestone_events_created]
+        parts.append(f"Added to calendar: {', '.join(event_titles)} (annual).")
 
     # Mention visibility
     primary_visibility = stored_facts[0]["visibility"]

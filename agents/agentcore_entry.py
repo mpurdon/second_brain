@@ -147,10 +147,33 @@ def handle_request(event: dict[str, Any]) -> dict[str, Any]:
             family_ids=family_ids,
         )
 
-        # The router's response includes the routing decision
-        # In a full implementation, we would parse this and call
-        # the appropriate specialized agent
-        result = routing_result
+        # Parse the routing decision and call appropriate agent
+        response_text = routing_result.get("response", "").lower()
+
+        if "ingestion" in response_text or "ingest" in response_text:
+            # Route to ingestion agent
+            agent = get_ingestion_agent()
+            result = agent.process(
+                message=message,
+                user_id=user_id,
+                source_type="text" if source != "alexa" else "voice",
+            )
+        elif "query" in response_text or "search" in response_text or "find" in response_text:
+            # Route to query agent
+            agent = get_query_agent()
+            result = agent.process(
+                query=message,
+                user_id=user_id,
+                family_ids=family_ids,
+            )
+        else:
+            # Default to query agent for unknown intents
+            agent = get_query_agent()
+            result = agent.process(
+                query=message,
+                user_id=user_id,
+                family_ids=family_ids,
+            )
 
     return {
         "status": "success",
