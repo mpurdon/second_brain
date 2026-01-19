@@ -176,9 +176,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
     match (method, path) {
         // Create relationship
         ("POST", "/relationships") => {
-            let body = event.body();
-            let request: CreateRelationshipRequest = serde_json::from_slice(body)
-                .map_err(|e| format!("Invalid request body: {}", e))?;
+            let request: CreateRelationshipRequest = match shared::parse_json_body(event.body())? {
+                Ok(r) => r,
+                Err(response) => return Ok(response),
+            };
 
             // Validate relationship type
             if !RELATIONSHIP_TYPES.contains(&request.relationship_type.as_str()) {
@@ -379,9 +380,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
             match method {
                 // Update access tier
                 "PUT" => {
-                    let body = event.body();
-                    let request: UpdateRelationshipRequest = serde_json::from_slice(body)
-                        .map_err(|e| format!("Invalid request body: {}", e))?;
+                    let request: UpdateRelationshipRequest = match shared::parse_json_body(event.body())? {
+                        Ok(r) => r,
+                        Err(response) => return Ok(response),
+                    };
 
                     if !(1..=4).contains(&request.access_tier) {
                         return Ok(json_response(

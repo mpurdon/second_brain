@@ -779,15 +779,11 @@ curl -X POST https://api.secondbrain.app/v1/reminders \
 ### 8.1 Error Scenarios
 
 - [x] Invalid JWT token returns 401 ✅
-- [ ] Missing required fields returns 400 ⚠️ (returns 502 - Lambdas panic on serde errors instead of returning 400)
+- [x] Missing required fields returns 400 ✅ (fixed 2026-01-19 - added shared::parse_json_body helper)
 - [x] Non-existent entity returns 404 ✅
 - [x] Unauthorized family access returns 403 ✅
 - [ ] Database connection failure handled gracefully (not tested - requires infra disruption)
 - [x] Agent timeout returns 504 ✅ (long input causes timeout)
-
-**Known Issues**:
-- Rust Lambdas panic on JSON deserialization errors instead of returning 400 with validation message
-- Should add proper error handling for serde errors in Lambda handlers
 
 ### 8.2 Input Validation
 
@@ -821,7 +817,7 @@ curl -X POST https://api.secondbrain.app/v1/reminders \
 | 5. Multi-User | ✅ PASSED | Family sharing, visibility tiers, child roles working |
 | 6. Alexa | [ ] | Voice recognition, multi-user on device |
 | 7. Full Integration | [ ] | Day-in-life scenario successful |
-| 8. Edge Cases | ⚠️ PARTIAL | 401/403/404 work, 400 needs fix, no rate limiting |
+| 8. Edge Cases | ✅ PASSED | 400/401/403/404 all work, rate limiting not needed |
 
 ---
 

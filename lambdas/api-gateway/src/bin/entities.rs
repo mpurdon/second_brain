@@ -236,9 +236,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
     match (method, path) {
         // Create entity
         ("POST", "/entities") => {
-            let body = event.body();
-            let request: CreateEntityRequest = serde_json::from_slice(body)
-                .map_err(|e| format!("Invalid request body: {}", e))?;
+            let request: CreateEntityRequest = match shared::parse_json_body(event.body())? {
+                Ok(r) => r,
+                Err(response) => return Ok(response),
+            };
 
             // Validate entity type
             if !ENTITY_TYPES.contains(&request.entity_type.as_str()) {
@@ -565,9 +566,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
 
                 // Update entity
                 ("PUT", None) => {
-                    let body = event.body();
-                    let request: UpdateEntityRequest = serde_json::from_slice(body)
-                        .map_err(|e| format!("Invalid request body: {}", e))?;
+                    let request: UpdateEntityRequest = match shared::parse_json_body(event.body())? {
+                        Ok(r) => r,
+                        Err(response) => return Ok(response),
+                    };
 
                     // Update each field individually for simplicity
                     sqlx::query("UPDATE entities SET updated_at = NOW() WHERE id = $1")
@@ -681,9 +683,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
 
                 // Create entity relationship
                 ("POST", Some(&"relationships")) => {
-                    let body = event.body();
-                    let request: CreateRelationshipRequest = serde_json::from_slice(body)
-                        .map_err(|e| format!("Invalid request body: {}", e))?;
+                    let request: CreateRelationshipRequest = match shared::parse_json_body(event.body())? {
+                        Ok(r) => r,
+                        Err(response) => return Ok(response),
+                    };
 
                     let target_id = Uuid::parse_str(&request.target_entity_id)
                         .map_err(|_| "Invalid target_entity_id")?;

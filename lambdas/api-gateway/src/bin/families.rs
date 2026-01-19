@@ -169,9 +169,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
     match (method, path) {
         // Create family
         ("POST", "/families") => {
-            let body = event.body();
-            let request: CreateFamilyRequest = serde_json::from_slice(body)
-                .map_err(|e| format!("Invalid request body: {}", e))?;
+            let request: CreateFamilyRequest = match shared::parse_json_body(event.body())? {
+                Ok(r) => r,
+                Err(response) => return Ok(response),
+            };
 
             let family_id = Uuid::new_v4();
 
@@ -367,9 +368,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                         )?);
                     }
 
-                    let body = event.body();
-                    let request: InviteMemberRequest = serde_json::from_slice(body)
-                        .map_err(|e| format!("Invalid request body: {}", e))?;
+                    let request: InviteMemberRequest = match shared::parse_json_body(event.body())? {
+                        Ok(r) => r,
+                        Err(response) => return Ok(response),
+                    };
 
                     // Find user by email
                     let invitee: Option<Uuid> = sqlx::query_scalar(

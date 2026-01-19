@@ -643,9 +643,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
 
                 // Add location to entity
                 "POST" => {
-                    let body = event.body();
-                    let request: StoreLocationRequest = serde_json::from_slice(body)
-                        .map_err(|e| format!("Invalid request body: {}", e))?;
+                    let request: StoreLocationRequest = match shared::parse_json_body(event.body())? {
+                        Ok(r) => r,
+                        Err(response) => return Ok(response),
+                    };
 
                     let location_id = Uuid::new_v4();
                     let visibility = request.visibility_tier.unwrap_or(3);

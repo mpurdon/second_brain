@@ -222,9 +222,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
     match (method, path) {
         // Create tag
         ("POST", "/tags") => {
-            let body = event.body();
-            let request: CreateTagRequest = serde_json::from_slice(body)
-                .map_err(|e| format!("Invalid request body: {}", e))?;
+            let request: CreateTagRequest = match shared::parse_json_body(event.body())? {
+                Ok(r) => r,
+                Err(response) => return Ok(response),
+            };
 
             // Validate path format
             if !request.path.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '/') {
@@ -463,10 +464,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                 entity_type: Option<String>,
             }
 
-            let body = event.body();
-            let body_str = std::str::from_utf8(body.as_ref()).unwrap_or("{}");
-            let request: SuggestRequest = serde_json::from_str(body_str)
-                .map_err(|_| "Invalid request body")?;
+            let request: SuggestRequest = match shared::parse_json_body(event.body())? {
+                Ok(r) => r,
+                Err(response) => return Ok(response),
+            };
 
             let mut suggestions: Vec<serde_json::Value> = Vec::new();
 
@@ -651,9 +652,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
 
                 // Apply tags to fact
                 ("POST", Some(&"tags"), None) => {
-                    let body = event.body();
-                    let request: ApplyTagsRequest = serde_json::from_slice(body)
-                        .map_err(|e| format!("Invalid request body: {}", e))?;
+                    let request: ApplyTagsRequest = match shared::parse_json_body(event.body())? {
+                        Ok(r) => r,
+                        Err(response) => return Ok(response),
+                    };
 
                     let confidence = request.confidence.unwrap_or(1.0);
                     let mut applied = Vec::new();
@@ -846,9 +848,10 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                         )?);
                     }
 
-                    let body = event.body();
-                    let request: UpdateTagRequest = serde_json::from_slice(body)
-                        .map_err(|e| format!("Invalid request body: {}", e))?;
+                    let request: UpdateTagRequest = match shared::parse_json_body(event.body())? {
+                        Ok(r) => r,
+                        Err(response) => return Ok(response),
+                    };
 
                     if let Some(name) = &request.name {
                         sqlx::query("UPDATE tags SET name = $2 WHERE id = $1")
