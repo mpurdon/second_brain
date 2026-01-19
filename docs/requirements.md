@@ -1,10 +1,11 @@
 # Second Brain - Requirements Document
 
-**Version:** 1.2
+**Version:** 2.0
 **Date:** January 2025
-**Status:** Approved for Design Phase
+**Status:** Implementation In Progress - Phases 1-4 Complete
 
 ### Changelog
+- v2.0: Synced with implementation status. Phases 1-4 complete (Core, Extended Features, Calendar, Discord). Updated phase definitions.
 - v1.2: Added Tech Stack section (Rust Lambdas, Python Agents, Python CDK, TypeScript Web)
 - v1.1: Added Geographic (PostGIS) and Temporal query requirements, consolidated to PostgreSQL-only storage (removed DynamoDB)
 
@@ -13,6 +14,41 @@
 ## Executive Summary
 
 A voice-enabled personal knowledge management system ("Second Brain") for families. The platform enables natural language fact ingestion, intelligent classification, proactive reminders, and multi-platform access. Built on AWS with Strands SDK for agentic capabilities.
+
+---
+
+## Implementation Status
+
+### Completed (Phases 1-4)
+
+| Phase | Status | Key Deliverables |
+|-------|--------|------------------|
+| **Phase 1: Core Knowledge** | ✅ Complete | Fact ingestion (~8s), semantic search, entity extraction, visibility tiers, Cognito auth |
+| **Phase 2: Extended Features** | ✅ Complete | Hierarchical tags, PostGIS locations, proximity queries, reminders, user feedback loop |
+| **Phase 3: Calendar & Briefings** | ✅ Complete | Google Calendar OAuth, 15-min sync, morning briefings, meeting context, milestone detection |
+| **Phase 4: Discord Integration** | ✅ Complete | Slash commands (/remember, /ask, /briefing), deferred responses, auto-tagging, temporal parsing |
+
+### In Progress (Phase 5)
+
+| Phase | Status | Key Deliverables |
+|-------|--------|------------------|
+| **Phase 5: Multi-User & Family** | 🔄 In Progress | Family hierarchy with RBAC, tiered access control, relationship graph |
+
+### Planned (Phases 6-8)
+
+| Phase | Status | Key Deliverables |
+|-------|--------|------------------|
+| **Phase 6: Alexa & Smart Mirror** | ⏳ Planned | Alexa custom skill, account linking, MagicMirror² module, shared device mode |
+| **Phase 7: Proactive Intelligence** | ⏳ Planned | Advanced briefing customization, context-aware reminders, deadline notifications |
+| **Phase 8: Advanced & Optimization** | ⏳ Planned | Taxonomy evolution, pattern detection, performance optimization |
+
+### Test Results
+
+| Metric | Phase 1 | Phase 2 | Phase 3 | Phase 4 |
+|--------|---------|---------|---------|---------|
+| Ingestion Latency | ~8s | ~8s | ~8s | ~14-18s (Discord deferred) |
+| Query Latency | ~8s | ~8s | ~8s | ~14-18s (Discord deferred) |
+| Core Functions | ✅ Pass | ✅ Pass | ✅ Pass | ✅ Pass |
 
 ---
 
@@ -63,44 +99,75 @@ The system uses a **hybrid Rust/Python architecture** to optimize for both perfo
 ### Project Structure
 
 ```
-second_mind/
+second_brain/
 ├── infra/                          # Python CDK
-│   ├── app.py
+│   ├── app.py                      # CDK app entry point
 │   ├── stacks/
+│   │   ├── api.py                  # API Gateway + Rust Lambdas
+│   │   ├── agents.py               # Python agent Lambda
 │   │   ├── database.py             # RDS PostgreSQL
 │   │   ├── auth.py                 # Cognito
-│   │   ├── api.py                  # API Gateway + Rust Lambdas
-│   │   ├── agents.py               # AgentCore deployment
 │   │   ├── integrations.py         # Discord, Alexa Lambdas
-│   │   └── scheduling.py           # EventBridge
-│   └── cdk.json
+│   │   ├── scheduling.py           # EventBridge rules
+│   │   ├── migrations.py           # DB migration runner
+│   │   ├── monitoring.py           # CloudWatch
+│   │   └── network.py              # VPC
+│   └── requirements.txt
 │
 ├── lambdas/                        # Rust
-│   ├── Cargo.toml                  # Workspace
+│   ├── Cargo.toml                  # Workspace config
 │   ├── shared/                     # Shared types, DB client
-│   ├── api-gateway/                # REST API handlers
-│   ├── discord-webhook/            # Discord interaction handler
+│   ├── api-gateway/src/bin/        # REST API handlers
+│   │   ├── ingest.rs               # Fact ingestion
+│   │   ├── query.rs                # Knowledge search
+│   │   ├── entities.rs             # Entity CRUD
+│   │   ├── relationships.rs        # Entity relationships
+│   │   ├── tags.rs                 # Tagging system
+│   │   ├── reminders.rs            # Reminder management
+│   │   ├── locations.rs            # Geographic queries
+│   │   ├── calendar.rs             # Calendar operations
+│   │   ├── calendar_oauth.rs       # Google OAuth flow
+│   │   ├── briefing.rs             # Morning briefings
+│   │   ├── feedback.rs             # User feedback
+│   │   ├── families.rs             # Family management
+│   │   └── user_signup.rs          # Registration
+│   ├── discord-webhook/            # Discord bot handler
 │   ├── alexa-skill/                # Alexa request handler
 │   ├── event-triggers/             # EventBridge handlers
-│   └── geocoder/                   # AWS Location Service caller
+│   └── geocoder/                   # AWS Location Service
 │
 ├── agents/                         # Python (Strands SDK)
+│   ├── agentcore_entry.py          # Lambda entry point
 │   ├── pyproject.toml
-│   ├── src/
-│   │   ├── ingestion/              # Fact ingestion agent
-│   │   ├── query/                  # Query answering agent
-│   │   ├── scheduler/              # Proactive notification agent
-│   │   ├── calendar/               # Calendar sync agent
-│   │   └── shared/                 # Shared tools, DB access
-│   └── agentcore_entry.py          # AgentCore entrypoint
+│   └── src/
+│       ├── router/                 # Intent classification agent
+│       ├── ingestion/              # Fact ingestion agent
+│       ├── query/                  # Query answering agent
+│       ├── calendar/               # Calendar sync agent
+│       ├── briefing/               # Briefing generation agent
+│       ├── scheduler/              # Proactive notification agent
+│       ├── taxonomy/               # Tag evolution agent
+│       └── shared/
+│           ├── tools/              # Agent tools (DB, entities, search)
+│           ├── database.py         # Connection management
+│           ├── models.py           # Pydantic models
+│           └── temporal.py         # Temporal parsing
 │
-├── web/                            # TypeScript + React
+├── migrations/                     # SQL migration scripts (16 files)
+│   ├── 001_extensions.sql          # pgvector, PostGIS, etc.
+│   ├── 002_users_families.sql      # User hierarchy
+│   └── ...                         # Schema evolution
+│
+├── web/                            # TypeScript + React (Next.js 14)
 │   ├── src/
 │   ├── package.json
 │   └── tsconfig.json
 │
-└── docs/
-    └── requirements.md
+├── docs/
+│   ├── requirements.md             # This document
+│   └── implementation-plan.md      # Development roadmap
+│
+└── TESTING_PLAN.md                 # Comprehensive test scenarios
 ```
 
 ### Request Flow
@@ -134,6 +201,8 @@ User Request (Discord/Alexa/API)
 
 ## Table of Contents
 
+- [Implementation Status](#implementation-status)
+- [Tech Stack](#tech-stack)
 1. [User Interaction Requirements](#1-user-interaction-requirements)
 2. [Knowledge Ingestion Requirements](#2-knowledge-ingestion-requirements)
 3. [Storage Requirements](#3-storage-requirements)
@@ -155,13 +224,14 @@ User Request (Discord/Alexa/API)
 
 ### 1.1 Supported Platforms
 
-| Platform | Type | Priority | Notes |
-|----------|------|----------|-------|
-| Discord Bot | Primary | High | Voice channels + text |
-| Alexa Skill | Voice | High | Hands-free, household access |
-| Smart Mirror | Ambient | Medium | MagicMirror² integration |
-| Mobile App | Future | Low | iOS/Android |
-| Web App | Future | Low | Dashboard interface |
+| Platform | Type | Status | Priority | Notes |
+|----------|------|--------|----------|-------|
+| Discord Bot | Primary | ✅ Active | High | Slash commands, deferred responses |
+| REST API | Direct | ✅ Active | High | Full CRUD, Cognito auth |
+| Alexa Skill | Voice | ⏳ Planned | High | Hands-free, household access |
+| Smart Mirror | Ambient | ⏳ Planned | Medium | MagicMirror² integration |
+| Web App | Dashboard | ⏳ Planned | Medium | Next.js 14 (scaffolded) |
+| Mobile App | Future | ⏳ Planned | Low | iOS/Android |
 
 ### 1.2 Voice Input/Output
 
@@ -723,13 +793,15 @@ MEETING CONTEXT (1:1 with Sarah)
 
 ### 8.1 Agent Types
 
-| Agent | Purpose | Tools | Priority |
-|-------|---------|-------|----------|
-| **Ingestion Agent** | Parse input, extract entities, generate embeddings, assign tags & visibility | entity_extractor, embedding_generator, tag_assigner, visibility_classifier | High |
-| **Query Agent** | Interpret queries, vector search, synthesize responses | vector_search, entity_lookup, calendar_query, relationship_traverse | High |
-| **Scheduler Agent** | Morning briefings, trigger evaluation, notification queuing | trigger_evaluator, notification_sender, briefing_generator | High |
-| **Calendar Agent** | External calendar sync, event parsing, entity linking | calendar_sync, event_parser, entity_linker | High |
-| **Taxonomy Agent** | Tag pattern analysis, taxonomy evolution proposals | pattern_analyzer, taxonomy_updater | Medium |
+| Agent | Purpose | Tools | Status |
+|-------|---------|-------|--------|
+| **Router Agent** | Intent classification (ingest vs query vs briefing vs calendar) | — | ✅ Active |
+| **Ingestion Agent** | Parse input, extract entities, generate embeddings, assign tags & visibility | entity_create, entity_link_to_fact, fact_store, generate_embedding, store_fact_embedding | ✅ Active |
+| **Query Agent** | Interpret queries, vector search, synthesize responses | semantic_search, entity_search, entity_get_details, calendar_get_events, relationship traversal | ✅ Active |
+| **Calendar Agent** | External calendar sync, event parsing, entity linking | calendar_sync, event_parser, entity_linker | ✅ Active |
+| **Briefing Agent** | Morning briefing generation, meeting context | calendar_get_events, semantic_search, reminder_lookup | ✅ Active |
+| **Scheduler Agent** | Trigger evaluation, notification queuing | trigger_evaluator, notification_sender | ✅ Active |
+| **Taxonomy Agent** | Tag pattern analysis, taxonomy evolution proposals | pattern_analyzer, taxonomy_updater | ⏳ Planned |
 
 ### 8.2 Agent Coordination
 
@@ -758,36 +830,65 @@ MEETING CONTEXT (1:1 with Sarah)
 ### 9.1 API Endpoints
 
 ```
-REST API:
-POST   /v1/query              # Ask a question (text)
-POST   /v1/query/voice        # Ask via audio stream
-POST   /v1/ingest             # Store a fact
-GET    /v1/briefing           # Get morning briefing
-GET    /v1/calendar           # Get calendar events
-GET    /v1/entities/{id}      # Get entity details
-POST   /v1/reminders          # Create reminder
-GET    /v1/notifications      # Poll for proactive alerts
+REST API (Implemented):
+POST   /ingest                # Store a fact ✅
+POST   /query                 # Ask a question ✅
+GET    /briefing              # Get morning briefing ✅
 
-WebSocket:
-WS     /v1/stream             # Real-time voice + push notifications
+GET    /entities              # List entities ✅
+POST   /entities              # Create entity ✅
+GET    /entities/{id}         # Get entity details ✅
+PUT    /entities/{id}         # Update entity ✅
+DELETE /entities/{id}         # Delete entity ✅
+
+GET    /relationships         # List relationships ✅
+POST   /relationships         # Create relationship ✅
+
+GET    /tags                  # List tags ✅
+POST   /tags                  # Create tag ✅
+GET    /tags/{id}             # Get tag details ✅
+
+GET    /reminders             # List reminders ✅
+POST   /reminders             # Create reminder ✅
+PUT    /reminders/{id}        # Update reminder ✅
+DELETE /reminders/{id}        # Delete reminder ✅
+
+GET    /locations/nearby      # Proximity search ✅
+POST   /locations             # Add location to entity ✅
+
+GET    /calendar/events       # Get calendar events ✅
+GET    /calendar/oauth/start  # Start Google OAuth flow ✅
+GET    /calendar/oauth/callback # OAuth callback ✅
+
+GET    /families              # List family members ✅
+POST   /families              # Create/join family ✅
+
+POST   /feedback              # Submit query feedback ✅
+POST   /user/signup           # User registration ✅
+
+Planned:
+POST   /query/voice           # Ask via audio stream ⏳
+WS     /stream                # Real-time voice + push notifications ⏳
 ```
 
-| Req ID | Requirement | Priority |
-|--------|-------------|----------|
-| API-001 | RESTful API with OpenAPI 3.0 specification | High |
-| API-002 | WebSocket support for real-time streaming | High |
-| API-003 | API Gateway with Lambda integration | High |
-| API-004 | Rate limiting per user/device | High |
-| API-005 | Request/response logging for debugging | Medium |
+| Req ID | Requirement | Status | Priority |
+|--------|-------------|--------|----------|
+| API-001 | RESTful API with Lambda integration | ✅ Implemented | High |
+| API-002 | WebSocket support for real-time streaming | ⏳ Planned | High |
+| API-003 | API Gateway with Cognito authorizer | ✅ Implemented | High |
+| API-004 | Rate limiting per user/device | ⏳ Planned | High |
+| API-005 | Request/response logging (CloudWatch) | ✅ Implemented | Medium |
 
 ### 9.2 Platform Integrations
 
-| Req ID | Requirement | Priority |
-|--------|-------------|----------|
-| API-INT-001 | Discord bot with voice channel support | High |
-| API-INT-002 | Alexa Custom Skill with account linking | High |
-| API-INT-003 | Smart Mirror module (MagicMirror²) | Medium |
-| API-INT-004 | Mobile SDK (future) | Low |
+| Req ID | Requirement | Status | Priority |
+|--------|-------------|--------|----------|
+| API-INT-001 | Discord bot with slash commands (/remember, /ask, /briefing) | ✅ Implemented | High |
+| API-INT-002 | Discord webhook with ed25519 signature verification | ✅ Implemented | High |
+| API-INT-003 | Deferred response pattern for long operations | ✅ Implemented | High |
+| API-INT-004 | Alexa Custom Skill with account linking | ⏳ Planned | High |
+| API-INT-005 | Smart Mirror module (MagicMirror²) | ⏳ Planned | Medium |
+| API-INT-006 | Mobile SDK (future) | ⏳ Planned | Low |
 
 ### 9.3 Device Management
 
@@ -867,36 +968,35 @@ WS     /v1/stream             # Real-time voice + push notifications
 
 ### 11.1 Core Services
 
-| Service | Purpose | Priority |
-|---------|---------|----------|
-| Amazon Bedrock AgentCore | Serverless agent runtime | High |
-| Amazon Bedrock | LLM inference | High |
-| Amazon RDS PostgreSQL | Unified data store (pgvector, PostGIS, btree_gist) | High |
-| AWS Lambda | Event handlers, API endpoints | High |
-| Amazon API Gateway | REST + WebSocket APIs | High |
-| Amazon EventBridge | Scheduled triggers | High |
-| Amazon Transcribe | Speech-to-text | High |
-| Amazon Polly | Text-to-speech | High |
-| Amazon SNS | Push notifications | High |
-| Amazon Cognito | Authentication | High |
-| AWS Secrets Manager | API keys, OAuth tokens | High |
-| AWS Location Service | Address geocoding | High |
-| Amazon CloudWatch | Logging, monitoring | High |
-| Amazon S3 | Backups, document storage | Medium |
+| Service | Purpose | Status | Priority |
+|---------|---------|--------|----------|
+| Amazon Bedrock | LLM inference (Claude 3.5 Sonnet/Haiku, Titan) | ✅ Active | High |
+| Amazon RDS PostgreSQL | Unified data store (pgvector, PostGIS, btree_gist, pg_trgm) | ✅ Active | High |
+| AWS Lambda | Rust API handlers (13), Python agents (1), migrations | ✅ Active | High |
+| Amazon API Gateway | REST API | ✅ Active | High |
+| Amazon EventBridge | Scheduled triggers (briefings, reminders, calendar sync) | ✅ Active | High |
+| Amazon Cognito | Authentication (User Pool: us-east-1) | ✅ Active | High |
+| AWS Secrets Manager | DB credentials, OAuth tokens, Discord secrets | ✅ Active | High |
+| AWS Location Service | Address geocoding | ✅ Ready | High |
+| Amazon CloudWatch | Logging, monitoring | ✅ Active | High |
+| Amazon Transcribe | Speech-to-text | ⏳ Ready | High |
+| Amazon Polly | Text-to-speech | ⏳ Ready | High |
+| Amazon SNS | Push notifications | ⏳ Planned | High |
+| Amazon S3 | Backups, document storage | ⏳ Planned | Medium |
 
 ### 11.2 Bedrock Model Selection
 
-| Model | Use Case | Priority |
-|-------|----------|----------|
-| Claude Sonnet 4 | Primary agent reasoning | High |
-| Claude Haiku 4 | Simple classification, routing | High |
-| Amazon Titan Embeddings V2 | Vector embeddings | High |
+| Model | Use Case | Status | Priority |
+|-------|----------|--------|----------|
+| Claude 3.5 Sonnet | Primary agent reasoning | ✅ Active | High |
+| Claude 3 Haiku | Simple classification, routing | ✅ Active | High |
+| Amazon Titan Embeddings V2 | Vector embeddings (1024-dim) | ✅ Active | High |
 
 | Req ID | Requirement | Priority |
 |--------|-------------|----------|
-| AWS-BR-001 | Claude Sonnet as primary reasoning model | High |
-| AWS-BR-002 | Claude Haiku for classification to reduce costs | High |
-| AWS-BR-003 | Titan Embeddings for vector generation | High |
+| AWS-BR-001 | Claude 3.5 Sonnet as primary reasoning model | High |
+| AWS-BR-002 | Claude 3 Haiku for classification to reduce costs (~$0.0001/input) | High |
+| AWS-BR-003 | Titan Embeddings V2 for vector generation (1024 dimensions) | High |
 | AWS-BR-004 | Model fallback for availability | Medium |
 
 ### 11.3 EventBridge Scheduling
@@ -998,51 +1098,75 @@ WS     /v1/stream             # Real-time voice + push notifications
 
 ## 14. Implementation Phases
 
-### Phase 1: Core Foundation
-- AWS infrastructure setup (RDS PostgreSQL with extensions, Lambda)
-- Basic Ingestion Agent with entity extraction
-- Basic Query Agent with vector search
-- Deploy to AgentCore Runtime
-- Discord bot with text interface
-- Cognito setup with Google OAuth2
+### Phase 1: Core Knowledge Operations ✅ COMPLETE
+- [x] AWS infrastructure setup (RDS PostgreSQL with pgvector, PostGIS, btree_gist, pg_trgm)
+- [x] CDK stacks (Network, Database, Auth, API, Agents, Migrations)
+- [x] Rust API Lambdas (ingest, query, entities, relationships)
+- [x] Python agents (Router, Ingestion, Query) with Strands SDK
+- [x] Semantic vector search with Titan Embeddings V2 (1024-dim)
+- [x] Entity extraction and linking
+- [x] Visibility tiers (1-4) for access control
+- [x] Cognito authentication with JWT validation
 
-### Phase 2: Voice & Calendar
-- Amazon Transcribe integration
-- Amazon Polly integration
-- Calendar Agent with Google Calendar sync
-- Voice commands in Discord
+### Phase 2: Extended Features ✅ COMPLETE
+- [x] Hierarchical tagging system with auto-suggestions
+- [x] Geographic entity locations with PostGIS
+- [x] Proximity-based queries ("Who lives nearby?")
+- [x] AWS Location Service geocoding integration
+- [x] Time-based reminders (recurring, one-time)
+- [x] Location-based reminders (geofence triggers)
+- [x] User feedback loop on query results
+- [x] Distance calculations (meters, km, miles)
 
-### Phase 3: Multi-User & Family
-- User/Family data model
-- Relationship graph implementation
-- Tiered access control
-- Visibility classification agent behavior
+### Phase 3: Calendar & Briefings ✅ COMPLETE
+- [x] Google Calendar OAuth2 integration
+- [x] Calendar sync to database (15-minute cycle)
+- [x] Calendar Agent for event management
+- [x] Natural language calendar queries
+- [x] Morning Briefing Agent
+- [x] Briefing dispatcher with EventBridge scheduling
+- [x] Meeting context from knowledge base
+- [x] Auto-detection of annual milestones (birthdays, anniversaries)
 
-### Phase 4: Geographic & Temporal Queries
-- PostGIS setup and spatial indexes
-- AWS Location Service geocoding integration
-- Temporal range queries with btree_gist
-- Historical fact ingestion and "as of" queries
-- Context-aware distance interpretation
+### Phase 4: Discord Integration ✅ COMPLETE
+- [x] Discord bot with slash commands (/remember, /ask, /briefing)
+- [x] Discord webhook Lambda with ed25519 signature verification
+- [x] Deferred response pattern for 3-second timeout
+- [x] Async Lambda follow-up for long-running operations
+- [x] Auto-tagging with LLM-extracted relationships
+- [x] Temporal parsing for date extraction
+- [x] External identity mapping (Discord ID → User ID)
 
-### Phase 5: Alexa & Smart Mirror
-- Alexa Custom Skill
-- Account linking flow
-- Smart Mirror MagicMirror² module
-- Shared device mode
+### Phase 5: Multi-User & Family 🔄 IN PROGRESS
+- [x] Family hierarchy schema (admin, member, child roles)
+- [x] Relationship types (SPOUSE, PARENT_OF, SIBLING, etc.)
+- [ ] Tiered access control enforcement across queries
+- [ ] Bidirectional access permissions
+- [ ] Family shared entities and visibility
+- [ ] Per-fact visibility overrides
 
-### Phase 6: Proactive Intelligence
-- Scheduler Agent
-- EventBridge schedules
-- Morning briefing generation
-- Notification triggers
-- SNS push notifications
+### Phase 6: Alexa & Smart Mirror ⏳ PLANNED
+- [ ] Alexa Custom Skill with account linking
+- [ ] Voice profile recognition for multi-user devices
+- [ ] Smart Mirror (MagicMirror²) module
+- [ ] Shared device mode with restricted data access (Tier 3+)
+- [ ] PIN confirmation for sensitive operations
 
-### Phase 7: Advanced Features
-- Taxonomy Agent
-- Multi-agent Swarm coordination
-- User feedback loop
-- Performance optimization
+### Phase 7: Proactive Intelligence ⏳ PLANNED
+- [ ] Advanced briefing customization (per-user sections)
+- [ ] Context-aware reminders
+- [ ] Meeting preparation summaries
+- [ ] Birthday/anniversary alerts with lead time
+- [ ] Deadline notifications
+- [ ] SNS push notifications
+
+### Phase 8: Advanced & Optimization ⏳ PLANNED
+- [ ] Taxonomy Agent with pattern detection
+- [ ] Tag evolution with user feedback
+- [ ] Performance optimization for scale (50+ families)
+- [ ] Query caching and optimization
+- [ ] User analytics and insights
+- [ ] Migration path to OpenSearch Serverless (if needed)
 
 ---
 
@@ -1106,5 +1230,5 @@ WS     /v1/stream             # Real-time voice + push notifications
 
 ---
 
-*Document generated: January 2025*
-*Ready for Design Phase*
+*Document last updated: January 2025*
+*Implementation Status: Phases 1-4 Complete, Phase 5 In Progress*

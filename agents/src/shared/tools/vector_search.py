@@ -105,9 +105,18 @@ def semantic_search(
             # 1. User's own facts (always visible)
             # 2. Facts from users the viewer has relationships with (filtered by visibility_tier)
             # 3. Family-owned facts (visible to all family members)
+            # 4. Facts from users in the same family (filtered by visibility_tier >= 2)
+            # Note: $2 is db_user_id (internal UUID), $3 is family_ids array
             search_query = """
                 WITH query_embedding AS (
                     SELECT $1::vector AS vec
+                ),
+                -- Find all users who are in the same families as the viewer
+                same_family_users AS (
+                    SELECT DISTINCT fm2.user_id
+                    FROM family_members fm1
+                    JOIN family_members fm2 ON fm1.family_id = fm2.family_id
+                    WHERE fm1.user_id = $2 AND fm2.user_id != $2
                 )
                 SELECT
                     f.id,
@@ -130,10 +139,12 @@ def semantic_search(
                 WHERE (
                     -- User's own facts
                     (f.owner_type = 'user' AND f.owner_id = $2)
-                    -- Facts from related users (with permission check)
+                    -- Facts from related users via user_access_cache (with permission check)
                     OR (f.owner_type = 'user' AND uac.access_tier IS NOT NULL AND uac.access_tier <= f.visibility_tier)
                     -- Family-owned facts (if user is in that family)
                     OR (f.owner_type = 'family' AND f.owner_id = ANY($3::uuid[]))
+                    -- Facts from family members with visibility_tier >= 2 (close family or above)
+                    OR (f.owner_type = 'user' AND f.owner_id IN (SELECT user_id FROM same_family_users) AND f.visibility_tier >= 2)
                 )
                 AND (f.valid_to IS NULL OR f.valid_to > CURRENT_DATE)
                 AND 1 - (fe.embedding <=> qe.vec) >= $4

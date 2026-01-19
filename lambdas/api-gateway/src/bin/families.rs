@@ -175,17 +175,15 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
 
             let family_id = Uuid::new_v4();
 
-            // Create family
+            // Create family (note: description and created_by columns may not exist in older schemas)
             sqlx::query(
                 r#"
-                INSERT INTO families (id, name, description, created_by)
-                VALUES ($1, $2, $3, $4)
+                INSERT INTO families (id, name)
+                VALUES ($1, $2)
                 "#,
             )
             .bind(family_id)
             .bind(&request.name)
-            .bind(&request.description)
-            .bind(user_id)
             .execute(&state.db_pool)
             .await
             .map_err(|e| format!("Failed to create family: {}", e))?;
@@ -220,9 +218,9 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
 
         // List user's families
         ("GET", "/families") => {
-            let families: Vec<FamilyResponse> = sqlx::query_as::<_, (Uuid, String, Option<String>, Uuid, chrono::DateTime<chrono::Utc>, i64)>(
+            let families: Vec<FamilyResponse> = sqlx::query_as::<_, (Uuid, String, chrono::DateTime<chrono::Utc>, i64)>(
                 r#"
-                SELECT f.id, f.name, f.description, f.created_by, f.created_at,
+                SELECT f.id, f.name, f.created_at,
                        (SELECT COUNT(*) FROM family_members fm WHERE fm.family_id = f.id) as member_count
                 FROM families f
                 JOIN family_members fm ON fm.family_id = f.id
@@ -235,11 +233,11 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
             .await
             .map_err(|e| format!("Failed to fetch families: {}", e))?
             .into_iter()
-            .map(|(id, name, description, created_by, created_at, member_count)| FamilyResponse {
+            .map(|(id, name, created_at, member_count)| FamilyResponse {
                 id: id.to_string(),
                 name,
-                description,
-                created_by: created_by.to_string(),
+                description: None,
+                created_by: String::new(),
                 created_at: created_at.to_rfc3339(),
                 member_count,
             })
@@ -286,9 +284,9 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
             match (method, path_parts.len()) {
                 // GET /families/{id} - Get family details
                 ("GET", 1) => {
-                    let family: Option<(Uuid, String, Option<String>, Uuid, chrono::DateTime<chrono::Utc>)> =
+                    let family: Option<(Uuid, String, chrono::DateTime<chrono::Utc>)> =
                         sqlx::query_as(
-                            "SELECT id, name, description, created_by, created_at FROM families WHERE id = $1"
+                            "SELECT id, name, created_at FROM families WHERE id = $1"
                         )
                         .bind(family_id)
                         .fetch_optional(&state.db_pool)
@@ -296,11 +294,11 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                         .map_err(|e| format!("Failed to fetch family: {}", e))?;
 
                     match family {
-                        Some((id, name, description, created_by, created_at)) => {
+                        Some((id, name, created_at)) => {
                             // Get members
                             let members: Vec<FamilyMemberResponse> = sqlx::query_as::<_, (Uuid, String, Option<String>, String, chrono::DateTime<chrono::Utc>)>(
                                 r#"
-                                SELECT u.id, u.email, u.display_name, fm.role, fm.joined_at
+                                SELECT u.id, u.email, u.display_name, fm.role::text, fm.joined_at
                                 FROM family_members fm
                                 JOIN users u ON u.id = fm.user_id
                                 WHERE fm.family_id = $1
@@ -328,8 +326,6 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                                     data: Some(serde_json::json!({
                                         "id": id.to_string(),
                                         "name": name,
-                                        "description": description,
-                                        "created_by": created_by.to_string(),
                                         "created_at": created_at.to_rfc3339(),
                                         "members": members,
                                     })),
@@ -392,7 +388,7 @@ async fn handler(state: Arc<AppState>, event: Request) -> Result<Response<Body>,
                             sqlx::query(
                                 r#"
                                 INSERT INTO family_members (family_id, user_id, role)
-                                VALUES ($1, $2, $3)
+                                VALUES ($1, $2, $3::family_role)
                                 ON CONFLICT (family_id, user_id) DO NOTHING
                                 "#,
                             )

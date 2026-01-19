@@ -11,8 +11,44 @@ from typing import Any
 from src.router import create_router_agent
 from src.ingestion import create_ingestion_agent
 from src.query import create_query_agent
-from src.shared.database import reset_knowledge_base, run_async
+from src.shared.database import reset_knowledge_base, run_async, execute_query
 from src.shared.tools.database import fact_update, fact_delete, fact_search
+
+
+async def _lookup_family_ids(user_id: str) -> list[str]:
+    """Look up a user's family memberships from the database.
+
+    Args:
+        user_id: The user's Cognito sub (UUID string).
+
+    Returns:
+        List of family UUIDs the user belongs to.
+    """
+    try:
+        # First get the user's internal ID from cognito_sub
+        user_rows = await execute_query(
+            "SELECT id FROM users WHERE cognito_sub = $1",
+            user_id
+        )
+        if not user_rows:
+            return []
+
+        internal_user_id = user_rows[0]["id"]
+
+        # Get family memberships
+        family_rows = await execute_query(
+            "SELECT family_id::text FROM family_members WHERE user_id = $1",
+            internal_user_id
+        )
+        return [row["family_id"] for row in family_rows]
+    except Exception as e:
+        print(f"Warning: Failed to lookup family_ids: {e}")
+        return []
+
+
+def lookup_family_ids(user_id: str) -> list[str]:
+    """Synchronous wrapper for _lookup_family_ids."""
+    return run_async(_lookup_family_ids(user_id))
 
 
 # Model configuration
@@ -110,6 +146,10 @@ def handle_request(event: dict[str, Any]) -> dict[str, Any]:
     conversation_id = event.get("conversation_id")
     intent = event.get("intent")
     source = event.get("source", "api")
+
+    # If family_ids not provided, look them up from database
+    if not family_ids and user_id:
+        family_ids = lookup_family_ids(user_id)
 
     if not message:
         return {

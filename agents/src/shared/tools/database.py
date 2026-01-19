@@ -176,8 +176,14 @@ def fact_search(
             family_uuid_list = [UUID(fid) for fid in (family_ids or [])]
 
             # Permission-aware base query
-            # Handles user facts, related user facts, and family facts
+            # Handles user facts, related user facts, family facts, and family member facts
             base_query = """
+                WITH same_family_users AS (
+                    SELECT DISTINCT fm2.user_id
+                    FROM family_members fm1
+                    JOIN family_members fm2 ON fm1.family_id = fm2.family_id
+                    WHERE fm1.user_id = $1 AND fm2.user_id != $1
+                )
                 SELECT f.id, f.content, f.importance, f.visibility_tier,
                        f.recorded_at, f.valid_from, f.valid_to,
                        f.owner_type, f.owner_id,
@@ -195,6 +201,8 @@ def fact_search(
                     OR (f.owner_type = 'user' AND uac.access_tier IS NOT NULL AND uac.access_tier <= f.visibility_tier)
                     -- Family-owned facts (if user is in that family)
                     OR (f.owner_type = 'family' AND f.owner_id = ANY($2::uuid[]))
+                    -- Facts from family members with visibility_tier >= 2 (close family or above)
+                    OR (f.owner_type = 'user' AND f.owner_id IN (SELECT user_id FROM same_family_users) AND f.visibility_tier >= 2)
                 )
             """
             params.append(db_user_id)
